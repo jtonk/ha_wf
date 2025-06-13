@@ -156,11 +156,7 @@ def _parse_html(html: str, url: str, forecast_type: str) -> dict:
             speed_el = row.select_one(".cell-wind-3 .units-ws")
             if not hour_el or not speed_el:
                 continue
-            hour_text = hour_el.text.strip()
-            m = re.search(r"(\d+)", hour_text)
-            if not m:
-                continue
-            hour = int(m.group(1))
+            hour = int(hour_el.text.strip())
             dt = datetime(year, month, day_num, hour)
 
             gust_el = row.select_one(".cell-wind-3 .data-gusts .units-ws")
