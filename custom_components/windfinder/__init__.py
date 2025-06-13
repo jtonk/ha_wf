@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -112,9 +112,6 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
             current = first_entry[0] if first_entry else {}
 
             result = {
-                "speed": current.get("wind_speed_kn"),
-                "direction": current.get("wind_direction_deg"),
-                "gust": current.get("wind_gust_kn"),
                 **forecast,
                 **superforecast,
             }
@@ -145,9 +142,9 @@ def _parse_html(html: str, url: str, forecast_type: str) -> dict:
     if last_update:
         m = re.match(r"(\d{1,2}):(\d{2})", last_update.text.strip())
         if m:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             dt = datetime(
-                now.year, now.month, now.day, int(m.group(1)), int(m.group(2))
+                now.year, now.month, now.day, int(m.group(1)), int(m.group(2)), tzinfo=timezone.utc
             )
             generated_at = dt.isoformat()
 
@@ -164,7 +161,7 @@ def _parse_html(html: str, url: str, forecast_type: str) -> dict:
             day_num = int(parts[2])
         except (KeyError, ValueError):
             continue
-        year = datetime.utcnow().year
+        year = datetime.now(timezone.utc).year
 
         for row in day.select(".weathertable__row"):
             hour_el = row.select_one(".data-time .value")
@@ -176,7 +173,7 @@ def _parse_html(html: str, url: str, forecast_type: str) -> dict:
             if not m:
                 continue
             hour = int(m.group(1))
-            dt = datetime(year, month, day_num, hour)
+            dt = datetime(year, month, day_num, hour, tzinfo=timezone.utc)
 
             gust_el = row.select_one(".cell-wind-3 .data-gusts .units-ws")
             dir_icon = row.select_one(".cell-wind-2 .icon-pointer-solid")
@@ -255,7 +252,7 @@ def _parse_html(html: str, url: str, forecast_type: str) -> dict:
         forecast_type + "data": forecasts,
         "general": {
             "source_url": url,
-            "fetched_at": datetime.utcnow().isoformat(),
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
             "generated_at": generated_at,
             "spot_name": spot_name,
         },
