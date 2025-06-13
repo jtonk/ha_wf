@@ -7,7 +7,12 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
 
-from .const import DOMAIN, CONF_LOCATION
+from .const import (
+    DOMAIN,
+    CONF_LOCATION,
+    CONF_INITIAL_REFRESH,
+    DEFAULT_INITIAL_REFRESH,
+)
 
 class WindfinderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Windfinder."""
@@ -44,7 +49,13 @@ class WindfinderOptionsFlowHandler(config_entries.OptionsFlow):
                 {
                     vol.Required(
                         CONF_LOCATION, default=self.config_entry.data.get(CONF_LOCATION)
-                    ): str
+                    ): str,
+                    vol.Required(
+                        CONF_INITIAL_REFRESH,
+                        default=self.config_entry.options.get(
+                            CONF_INITIAL_REFRESH, DEFAULT_INITIAL_REFRESH
+                        ),
+                    ): int,
                 }
             ),
         )
