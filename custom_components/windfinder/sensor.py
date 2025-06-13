@@ -5,31 +5,31 @@ from __future__ import annotations
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
-
-SENSOR_TYPES = {
-    "speed": ["Wind Speed", "m/s"],
-    "direction": ["Wind Direction", "°"],
-    "gust": ["Wind Gust", "m/s"],
-}
+from .const import DOMAIN, CONF_LOCATION
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    entities = [WindfinderSensor(coordinator, key) for key in SENSOR_TYPES]
-    async_add_entities(entities)
+    async_add_entities([WindfinderSensor(coordinator, entry)])
 
 class WindfinderSensor(SensorEntity):
-    """Representation of a Windfinder sensor."""
+    """Representation of a Windfinder sensor for one location."""
 
-    def __init__(self, coordinator, sensor_type: str):
+    def __init__(self, coordinator, entry: ConfigEntry):
         self.coordinator = coordinator
-        self._attr_name = SENSOR_TYPES[sensor_type][0]
-        self._attr_unit_of_measurement = SENSOR_TYPES[sensor_type][1]
-        self._sensor_type = sensor_type
+        location = entry.data[CONF_LOCATION]
+        self._attr_name = f"Windfinder {location}"
+        self._attr_unit_of_measurement = None
+        self._attr_unique_id = entry.entry_id
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name=f"Windfinder {location}",
+            manufacturer="Windfinder",
+        )
 
     @property
     def available(self) -> bool:
@@ -41,7 +41,7 @@ class WindfinderSensor(SensorEntity):
     @property
     def state(self):
         data = self.coordinator.data or {}
-        return data.get(self._sensor_type)
+        return data.get("general", {}).get("generated_at")
 
     @property
     def extra_state_attributes(self):

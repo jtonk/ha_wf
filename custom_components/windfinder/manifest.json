@@ -2,7 +2,7 @@
     "domain": "windfinder",
     "name": "Windfinder",
     "documentation": "https://github.com/example/windfinder",
-    "version": "0.3.0",
+    "version": "0.5.0",
     "config_flow": true,
     "requirements": ["beautifulsoup4>=4.13.0"],
     "codeowners": ["@yourname"],
