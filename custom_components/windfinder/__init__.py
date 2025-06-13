@@ -15,6 +15,11 @@ from bs4 import BeautifulSoup
 import re
 from datetime import datetime
 
+
+def _iso_utc(dt: datetime) -> str:
+    """Return an ISO 8601 timestamp in UTC with trailing 'Z'."""
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
 MONTHS = {
     "Jan": 1,
     "Feb": 2,
@@ -146,7 +151,7 @@ def _parse_html(html: str, url: str, forecast_type: str) -> dict:
             dt = datetime(
                 now.year, now.month, now.day, int(m.group(1)), int(m.group(2)), tzinfo=timezone.utc
             )
-            generated_at = dt.isoformat()
+            generated_at = _iso_utc(dt)
 
     for day in soup.select(".forecast-day"):
         headline = day.select_one(".weathertable__headline")
@@ -211,7 +216,7 @@ def _parse_html(html: str, url: str, forecast_type: str) -> dict:
 
             forecasts.append(
                 {
-                    "datetime": dt.isoformat(),
+                    "datetime": _iso_utc(dt),
                     "wind_speed_kn": float(speed_el.text.strip()),
                     "wind_gust_kn": float(gust_el.text.strip()) if gust_el else None,
                     "wind_direction_deg": dir_deg,
@@ -252,7 +257,7 @@ def _parse_html(html: str, url: str, forecast_type: str) -> dict:
         forecast_type + "data": forecasts,
         "general": {
             "source_url": url,
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "fetched_at": _iso_utc(datetime.now(timezone.utc)),
             "generated_at": generated_at,
             "spot_name": spot_name,
         },
