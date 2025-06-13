@@ -53,7 +53,4 @@ class WindfinderSensor(SensorEntity):
             attrs["superforecastdata"] = data["superforecastdata"]
         if "general" in data:
             attrs.update(data["general"])
-        attrs["speed"] = data.get("speed")
-        attrs["direction"] = data.get("direction")
-        attrs["gust"] = data.get("gust")
         return attrs
