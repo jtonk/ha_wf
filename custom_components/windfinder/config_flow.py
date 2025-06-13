@@ -7,7 +7,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
 
-from .const import DOMAIN, CONF_LOCATION, CONF_ENDPOINT, DEFAULT_ENDPOINT
+from .const import DOMAIN, CONF_LOCATION
 
 class WindfinderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Windfinder."""
@@ -20,12 +20,7 @@ class WindfinderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_LOCATION): str,
-                    vol.Optional(CONF_ENDPOINT, default=DEFAULT_ENDPOINT): str,
-                }
-            ),
+            data_schema=vol.Schema({vol.Required(CONF_LOCATION): str}),
         )
 
     @staticmethod
@@ -47,8 +42,9 @@ class WindfinderOptionsFlowHandler(config_entries.OptionsFlow):
             step_id="init",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_LOCATION, default=self.config_entry.data.get(CONF_LOCATION)): str,
-                    vol.Optional(CONF_ENDPOINT, default=self.config_entry.data.get(CONF_ENDPOINT, DEFAULT_ENDPOINT)): str,
+                    vol.Required(
+                        CONF_LOCATION, default=self.config_entry.data.get(CONF_LOCATION)
+                    ): str
                 }
             ),
         )

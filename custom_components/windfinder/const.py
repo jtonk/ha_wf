@@ -1,5 +1,5 @@
 DOMAIN = "windfinder"
 CONF_LOCATION = "location"
-CONF_ENDPOINT = "endpoint"
-DEFAULT_ENDPOINT = "http://localhost:1880/windfinder"  # Example Node-RED endpoint
+FORECAST_URL = "https://www.windfinder.com/forecast/{}"
+SUPERFORECAST_URL = "https://www.windfinder.com/weatherforecast/{}"
 PLATFORMS = ["sensor"]
