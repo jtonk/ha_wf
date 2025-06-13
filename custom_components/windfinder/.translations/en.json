@@ -1,0 +1,17 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Configure Windfinder",
+                "description": "Set your location and Node-RED endpoint.",
+                "data": {
+                    "location": "Location",
+                    "endpoint": "Node-RED endpoint"
+                }
+            },
+            "init": {
+                "title": "Windfinder Options"
+            }
+        }
+    }
+}

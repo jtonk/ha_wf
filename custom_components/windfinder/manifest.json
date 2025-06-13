@@ -1,0 +1,10 @@
+{
+    "domain": "windfinder",
+    "name": "Windfinder",
+    "documentation": "https://github.com/example/windfinder",
+    "version": "0.1.0",
+    "config_flow": true,
+    "requirements": [],
+    "codeowners": ["@yourname"],
+    "iot_class": "cloud_polling"
+}
