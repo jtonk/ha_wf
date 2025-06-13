@@ -36,6 +36,8 @@ from .const import (
     FORECAST_URL,
     SUPERFORECAST_URL,
     PLATFORMS,
+    CONF_INITIAL_REFRESH,
+    DEFAULT_INITIAL_REFRESH,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -50,10 +52,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     session = aiohttp_client.async_get_clientsession(hass)
 
+    initial_hours = entry.options.get(CONF_INITIAL_REFRESH, DEFAULT_INITIAL_REFRESH)
     coordinator = WindfinderDataUpdateCoordinator(
         hass,
         session=session,
         location=entry.data[CONF_LOCATION],
+        initial_hours=initial_hours,
     )
     await coordinator.async_config_entry_first_refresh()
 
@@ -73,13 +77,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching data from Windfinder."""
 
-    def __init__(self, hass, *, session, location):
+    def __init__(self, hass, *, session, location, initial_hours: int):
         """Initialize coordinator."""
-        super().__init__(
-            hass, _LOGGER, name=DOMAIN, update_interval=timedelta(minutes=30)
-        )
+        interval = timedelta(hours=initial_hours)
+        super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=interval)
         self._session = session
         self._location = location
+        self._initial_interval = interval
+        self._short_interval = timedelta(minutes=10)
+        self._last_generated_at: str | None = None
 
     async def _async_update_data(self):
         """Fetch and parse data from Windfinder."""
@@ -105,13 +111,22 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
             )
             current = first_entry[0] if first_entry else {}
 
-            return {
+            result = {
                 "speed": current.get("wind_speed_kn"),
                 "direction": current.get("wind_direction_deg"),
                 "gust": current.get("wind_gust_kn"),
                 **forecast,
                 **superforecast,
             }
+
+            generated = result.get("general", {}).get("generated_at")
+            if generated != self._last_generated_at:
+                self.update_interval = self._initial_interval
+                self._last_generated_at = generated
+            else:
+                self.update_interval = self._short_interval
+
+            return result
         except Exception as err:
             raise UpdateFailed(err)
 
