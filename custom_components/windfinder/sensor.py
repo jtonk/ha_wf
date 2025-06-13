@@ -7,7 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, CONF_LOCATION
+from .const import DOMAIN
 
 SENSOR_TYPES = {
     "speed": ["Wind Speed", "m/s"],
@@ -42,3 +42,18 @@ class WindfinderSensor(SensorEntity):
     def state(self):
         data = self.coordinator.data or {}
         return data.get(self._sensor_type)
+
+    @property
+    def extra_state_attributes(self):
+        data = self.coordinator.data or {}
+        attrs = {}
+        if "forecastdata" in data:
+            attrs["forecastdata"] = data["forecastdata"]
+        if "superforecastdata" in data:
+            attrs["superforecastdata"] = data["superforecastdata"]
+        if "general" in data:
+            attrs.update(data["general"])
+        attrs["speed"] = data.get("speed")
+        attrs["direction"] = data.get("direction")
+        attrs["gust"] = data.get("gust")
+        return attrs
