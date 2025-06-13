@@ -11,4 +11,7 @@ This repository contains a custom integration that displays wind conditions from
 ## Development
 
 The backend fetches data directly from windfinder.com based on the configured
-location. Forecast data is exposed as attributes on the sensor for further use.
+location. Each configured location creates a device with a single sensor named
+after the location (for example `sensor.hawf_noordwijk`). The sensor's state is
+the timestamp of the last update reported on Windfinder. Forecast data and
+current conditions are stored in the sensor's attributes for further use.
