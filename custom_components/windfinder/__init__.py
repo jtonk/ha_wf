@@ -186,7 +186,8 @@ def _parse_html(html: str, url: str, forecast_type: str) -> dict:
 
             wave_dir = None
             if wave_dir_el and wave_dir_el.has_attr("style"):
-                m = re.search(r"rotate\\(([^)]+)deg\\)", wave_dir_el["style"])
+                m = re.search(r"rotate\(([^)]+)deg\)", wave_dir_el["style"])
+
                 if m:
                     wave_dir = float(m.group(1))
 
