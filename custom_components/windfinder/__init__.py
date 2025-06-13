@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from datetime import timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -101,9 +102,10 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
                 resp.raise_for_status()
                 superforecast_html = await resp.text()
 
-            forecast = _parse_html(forecast_html, forecast_url, "forecast")
+            local_tz = ZoneInfo(self.hass.config.time_zone) if self.hass.config.time_zone else timezone.utc
+            forecast = _parse_html(forecast_html, forecast_url, "forecast", local_tz)
             superforecast = _parse_html(
-                superforecast_html, superforecast_url, "superforecast"
+                superforecast_html, superforecast_url, "superforecast", local_tz
             )
 
             first_entry = (
@@ -128,7 +130,7 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
             raise UpdateFailed(err)
 
 
-def _parse_html(html: str, url: str, forecast_type: str) -> dict:
+def _parse_html(html: str, url: str, forecast_type: str, local_tz: timezone = timezone.utc) -> dict:
     """Parse forecast HTML from Windfinder."""
     soup = BeautifulSoup(html, "html.parser")
 
@@ -142,11 +144,16 @@ def _parse_html(html: str, url: str, forecast_type: str) -> dict:
     if last_update:
         m = re.match(r"(\d{1,2}):(\d{2})", last_update.text.strip())
         if m:
-            now = datetime.now(timezone.utc)
-            dt = datetime(
-                now.year, now.month, now.day, int(m.group(1)), int(m.group(2)), tzinfo=timezone.utc
+            now = datetime.now(local_tz)
+            dt_local = datetime(
+                now.year,
+                now.month,
+                now.day,
+                int(m.group(1)),
+                int(m.group(2)),
+                tzinfo=local_tz,
             )
-            generated_at = dt.isoformat()
+            generated_at = dt_local.astimezone(timezone.utc).isoformat()
 
     for day in soup.select(".forecast-day"):
         headline = day.select_one(".weathertable__headline")
@@ -161,7 +168,7 @@ def _parse_html(html: str, url: str, forecast_type: str) -> dict:
             day_num = int(parts[2])
         except (KeyError, ValueError):
             continue
-        year = datetime.now(timezone.utc).year
+        year = datetime.now(local_tz).year
 
         for row in day.select(".weathertable__row"):
             hour_el = row.select_one(".data-time .value")
@@ -173,7 +180,8 @@ def _parse_html(html: str, url: str, forecast_type: str) -> dict:
             if not m:
                 continue
             hour = int(m.group(1))
-            dt = datetime(year, month, day_num, hour, tzinfo=timezone.utc)
+            dt_local = datetime(year, month, day_num, hour, tzinfo=local_tz)
+            dt = dt_local.astimezone(timezone.utc)
 
             gust_el = row.select_one(".cell-wind-3 .data-gusts .units-ws")
             dir_icon = row.select_one(".cell-wind-2 .icon-pointer-solid")
