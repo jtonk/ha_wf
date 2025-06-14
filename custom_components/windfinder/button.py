@@ -10,7 +10,9 @@ from .const import DOMAIN, CONF_LOCATION
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities([WindfinderRefreshButton(coordinator, entry)])

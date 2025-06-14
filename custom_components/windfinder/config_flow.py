@@ -14,6 +14,7 @@ from .const import (
     DEFAULT_REFRESH_INTERVAL,
 )
 
+
 class WindfinderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Windfinder."""
 
@@ -21,7 +22,9 @@ class WindfinderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         if user_input is not None:
-            return self.async_create_entry(title=user_input[CONF_LOCATION], data=user_input)
+            return self.async_create_entry(
+                title=user_input[CONF_LOCATION], data=user_input
+            )
 
         return self.async_show_form(
             step_id="user",
@@ -32,6 +35,7 @@ class WindfinderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry):
         return WindfinderOptionsFlowHandler(config_entry)
+
 
 class WindfinderOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow."""
@@ -48,7 +52,8 @@ class WindfinderOptionsFlowHandler(config_entries.OptionsFlow):
             data_schema=vol.Schema(
                 {
                     vol.Required(
-                        CONF_LOCATION, default=self.config_entry.data.get(CONF_LOCATION)
+                        CONF_LOCATION,
+                        default=self.config_entry.data.get(CONF_LOCATION),
                     ): str,
                     vol.Required(
                         CONF_REFRESH_INTERVAL,
