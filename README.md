@@ -8,6 +8,9 @@ This repository contains a custom integration that displays wind conditions from
 2. Restart Home Assistant.
 3. Use HACS or the integrations page to add **Windfinder** and follow the setup flow to configure your location.
 
+The integration refreshes data every 30 minutes by default. The update frequency
+can be adjusted later via the integration options in Home Assistant.
+
 ## Development
 
 The backend fetches data directly from windfinder.com based on the configured

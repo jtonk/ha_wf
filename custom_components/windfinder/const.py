@@ -4,5 +4,5 @@ FORECAST_URL = "https://www.windfinder.com/forecast/{}"
 SUPERFORECAST_URL = "https://www.windfinder.com/weatherforecast/{}"
 PLATFORMS = ["sensor"]
 
-CONF_INITIAL_REFRESH = "initial_refresh"
-DEFAULT_INITIAL_REFRESH = 5  # hours
+CONF_REFRESH_INTERVAL = "refresh_interval"
+DEFAULT_REFRESH_INTERVAL = 30  # minutes

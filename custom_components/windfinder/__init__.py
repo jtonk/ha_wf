@@ -37,8 +37,8 @@ from .const import (
     FORECAST_URL,
     SUPERFORECAST_URL,
     PLATFORMS,
-    CONF_INITIAL_REFRESH,
-    DEFAULT_INITIAL_REFRESH,
+    CONF_REFRESH_INTERVAL,
+    DEFAULT_REFRESH_INTERVAL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -53,12 +53,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     session = aiohttp_client.async_get_clientsession(hass)
 
-    initial_hours = entry.options.get(CONF_INITIAL_REFRESH, DEFAULT_INITIAL_REFRESH)
+    refresh_minutes = entry.options.get(
+        CONF_REFRESH_INTERVAL, DEFAULT_REFRESH_INTERVAL
+    )
     coordinator = WindfinderDataUpdateCoordinator(
         hass,
         session=session,
         location=entry.data[CONF_LOCATION],
-        initial_hours=initial_hours,
+        refresh_minutes=refresh_minutes,
     )
     await coordinator.async_config_entry_first_refresh()
 
@@ -78,15 +80,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching data from Windfinder."""
 
-    def __init__(self, hass, *, session, location, initial_hours: int):
+    def __init__(self, hass, *, session, location, refresh_minutes: int):
         """Initialize coordinator."""
-        interval = timedelta(hours=initial_hours)
+        interval = timedelta(minutes=refresh_minutes)
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=interval)
         self._session = session
         self._location = location
-        self._initial_interval = interval
-        self._short_interval = timedelta(minutes=10)
-        self._last_generated_at: str | None = None
 
     async def _async_update_data(self):
         """Fetch and parse data from Windfinder."""
@@ -117,13 +116,6 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
                 **forecast,
                 **superforecast,
             }
-
-            generated = result.get("general", {}).get("generated_at")
-            if generated != self._last_generated_at:
-                self.update_interval = self._initial_interval
-                self._last_generated_at = generated
-            else:
-                self.update_interval = self._short_interval
 
             return result
         except Exception as err:
