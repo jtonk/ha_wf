@@ -283,10 +283,7 @@ def _parse_html(
 
     return {
         forecast_type + "data": forecasts,
-        "general": {
-            "source_url": url,
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-            "generated_at": generated_at,
-            "spot_name": spot_name,
-        },
+        forecast_type + "_fetched": datetime.now(timezone.utc).isoformat(),
+        forecast_type + "_generated": generated_at,
+        "spot_name": spot_name,
     }
