@@ -45,16 +45,21 @@ class WindfinderSensor(SensorEntity):
     @property
     def state(self):
         data = self.coordinator.data or {}
-        return data.get("general", {}).get("generated_at")
+        return data.get("superforecast_generated") or data.get("forecast_generated")
 
     @property
     def extra_state_attributes(self):
         data = self.coordinator.data or {}
         attrs = {}
-        if "forecastdata" in data:
-            attrs["forecastdata"] = data["forecastdata"]
-        if "superforecastdata" in data:
-            attrs["superforecastdata"] = data["superforecastdata"]
-        if "general" in data:
-            attrs.update(data["general"])
+        for key in (
+            "forecastdata",
+            "superforecastdata",
+            "spot_name",
+            "forecast_generated",
+            "forecast_fetched",
+            "superforecast_generated",
+            "superforecast_fetched",
+        ):
+            if key in data:
+                attrs[key] = data[key]
         return attrs

@@ -384,10 +384,13 @@ class KiteForecastCard extends HTMLElement {
     const footer = this.querySelector("#footer");
     const datesRow = this.querySelector("#dates-row");
     const forecastTable = this.querySelector("#forecast-table");
-    const { fetched_at, spot_name } = stateObj.attributes;
+    const spot_name = stateObj.attributes.spot_name;
+    const prefix = source === 'superforecastdata' ? 'superforecast' : 'forecast';
+    const generated_at = stateObj.attributes[prefix + '_generated'];
+    const fetched_at = stateObj.attributes[prefix + '_fetched'];
 
     // Parse generation date - use local timezone by default
-    let generatedDate = new Date(stateObj.state);
+    let generatedDate = new Date(generated_at);
     if (isNaN(generatedDate.getTime())) generatedDate = new Date();
     const now = new Date();
     const ageHours = (now - generatedDate) / 36e5;
