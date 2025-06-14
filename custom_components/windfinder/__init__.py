@@ -10,11 +10,25 @@ from zoneinfo import ZoneInfo
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import aiohttp_client
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import (
+    DataUpdateCoordinator,
+    UpdateFailed,
+)
 
 from bs4 import BeautifulSoup
 import re
 from datetime import datetime
+
+
+from .const import (
+    DOMAIN,
+    CONF_LOCATION,
+    FORECAST_URL,
+    SUPERFORECAST_URL,
+    PLATFORMS,
+    CONF_REFRESH_INTERVAL,
+    DEFAULT_REFRESH_INTERVAL,
+)
 
 MONTHS = {
     "Jan": 1,
@@ -31,21 +45,13 @@ MONTHS = {
     "Dec": 12,
 }
 
-from .const import (
-    DOMAIN,
-    CONF_LOCATION,
-    FORECAST_URL,
-    SUPERFORECAST_URL,
-    PLATFORMS,
-    CONF_REFRESH_INTERVAL,
-    DEFAULT_REFRESH_INTERVAL,
-)
-
 _LOGGER = logging.getLogger(__name__)
+
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the Windfinder component."""
     return True
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Windfinder from a config entry."""
@@ -70,12 +76,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     return True
 
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unload_ok = await hass.config_entries.async_unload_platforms(
+        entry, PLATFORMS
+    )
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
     return unload_ok
+
 
 class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching data from Windfinder."""
@@ -97,20 +107,26 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
                 resp.raise_for_status()
                 forecast_html = await resp.text()
 
-            async with self._session.get(superforecast_url, timeout=10) as resp:
+            async with self._session.get(
+                superforecast_url, timeout=10
+            ) as resp:
                 resp.raise_for_status()
                 superforecast_html = await resp.text()
 
-            local_tz = ZoneInfo(self.hass.config.time_zone) if self.hass.config.time_zone else timezone.utc
-            forecast = _parse_html(forecast_html, forecast_url, "forecast", local_tz)
+            local_tz = (
+                ZoneInfo(self.hass.config.time_zone)
+                if self.hass.config.time_zone
+                else timezone.utc
+            )
+            forecast = _parse_html(
+                forecast_html, forecast_url, "forecast", local_tz
+            )
             superforecast = _parse_html(
-                superforecast_html, superforecast_url, "superforecast", local_tz
+                superforecast_html,
+                superforecast_url,
+                "superforecast",
+                local_tz,
             )
-
-            first_entry = (
-                superforecast.get("superforecastdata") or forecast.get("forecastdata")
-            )
-            current = first_entry[0] if first_entry else {}
 
             result = {
                 **forecast,
@@ -122,7 +138,9 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
             raise UpdateFailed(err)
 
 
-def _parse_html(html: str, url: str, forecast_type: str, local_tz: timezone = timezone.utc) -> dict:
+def _parse_html(
+    html: str, url: str, forecast_type: str, local_tz: timezone = timezone.utc
+) -> dict:
     """Parse forecast HTML from Windfinder."""
     soup = BeautifulSoup(html, "html.parser")
 
@@ -213,38 +231,53 @@ def _parse_html(html: str, url: str, forecast_type: str, local_tz: timezone = ti
                 {
                     "datetime": dt.isoformat(),
                     "wind_speed_kn": float(speed_el.text.strip()),
-                    "wind_gust_kn": float(gust_el.text.strip()) if gust_el else None,
+                    "wind_gust_kn": (
+                        float(gust_el.text.strip()) if gust_el else None
+                    ),
                     "wind_direction_deg": dir_deg,
-                    "wind_direction": dir_txt.text.strip() if dir_txt else None,
-                    "temperature_c": float(
-                        temp_el.get("data-value") or temp_el.text.strip()
-                    )
-                    if temp_el
-                    else None,
-                    "rain_mm": float(
-                        rain_el.get("data-value") or rain_el.text.strip() or 0
-                    )
-                    if rain_el
-                    else 0,
+                    "wind_direction": (
+                        dir_txt.text.strip() if dir_txt else None
+                    ),
+                    "temperature_c": (
+                        float(
+                            temp_el.get("data-value") or temp_el.text.strip()
+                        )
+                        if temp_el
+                        else None
+                    ),
+                    "rain_mm": (
+                        float(
+                            rain_el.get("data-value")
+                            or rain_el.text.strip()
+                            or 0
+                        )
+                        if rain_el
+                        else 0
+                    ),
                     "wave_direction_deg": wave_dir,
-                    "wave_height_m": float(
-                        wave_height_el.get("data-value")
-                        or wave_height_el.text.strip()
-                    )
-                    if wave_height_el
-                    else None,
+                    "wave_height_m": (
+                        float(
+                            wave_height_el.get("data-value")
+                            or wave_height_el.text.strip()
+                        )
+                        if wave_height_el
+                        else None
+                    ),
                     "wave_interval_s": wave_interval,
                     "night_hour": "row-stripe" in row.get("class", []),
-                    "cloud_cover_pct": int(
-                        cloud_el.text.replace("%", "").strip()
-                    )
-                    if cloud_el and cloud_el.text.strip()
-                    else None,
-                    "air_pressure_hpa": float(
-                        pressure_el.get("data-value") or pressure_el.text.strip()
-                    )
-                    if pressure_el and pressure_el.text.strip()
-                    else None,
+                    "cloud_cover_pct": (
+                        int(cloud_el.text.replace("%", "").strip())
+                        if cloud_el and cloud_el.text.strip()
+                        else None
+                    ),
+                    "air_pressure_hpa": (
+                        float(
+                            pressure_el.get("data-value")
+                            or pressure_el.text.strip()
+                        )
+                        if pressure_el and pressure_el.text.strip()
+                        else None
+                    ),
                 }
             )
 
