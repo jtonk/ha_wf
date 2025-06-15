@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from homeassistant.components.sensor import SensorEntity
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
@@ -20,16 +21,15 @@ async def async_setup_entry(
     async_add_entities([WindfinderSensor(coordinator, entry)])
 
 
-class WindfinderSensor(SensorEntity):
+class WindfinderSensor(CoordinatorEntity, SensorEntity):
     """Representation of a Windfinder sensor for one location."""
 
     _attr_should_poll = False
 
     def __init__(self, coordinator, entry: ConfigEntry):
-        self.coordinator = coordinator
+        super().__init__(coordinator)
         location = entry.data[CONF_LOCATION]
         self._attr_name = f"Windfinder {location}"
-        self._attr_unit_of_measurement = None
         self._attr_unique_id = entry.entry_id
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
@@ -40,9 +40,6 @@ class WindfinderSensor(SensorEntity):
     @property
     def available(self) -> bool:
         return self.coordinator.last_update_success
-
-    async def async_update(self):
-        await self.coordinator.async_request_refresh()
 
     @property
     def state(self):
