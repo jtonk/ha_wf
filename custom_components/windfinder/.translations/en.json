@@ -3,14 +3,17 @@
         "step": {
             "user": {
                 "title": "Configure Windfinder",
-                "description": "Set your location and Node-RED endpoint.",
+                "description": "Set your location. The value must be a valid windfinder.com location.",
                 "data": {
-                    "location": "Location",
-                    "endpoint": "Node-RED endpoint"
+                    "location": "Location"
                 }
             },
             "init": {
-                "title": "Windfinder Options"
+                "title": "Windfinder Options",
+                "data": {
+                    "location": "Location (must be a valid Windfinder location)",
+                    "refresh_interval": "Refresh interval (minutes)"
+                }
             }
         }
     }
