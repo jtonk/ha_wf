@@ -23,6 +23,8 @@ async def async_setup_entry(
 class WindfinderSensor(SensorEntity):
     """Representation of a Windfinder sensor for one location."""
 
+    _attr_should_poll = False
+
     def __init__(self, coordinator, entry: ConfigEntry):
         self.coordinator = coordinator
         location = entry.data[CONF_LOCATION]
