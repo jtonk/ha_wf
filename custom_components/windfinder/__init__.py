@@ -56,12 +56,12 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the Windfinder component."""
 
     async def handle_refresh_service(call: ServiceCall) -> None:
-        location = call.data[CONF_LOCATION]
+        location = call.data[CONF_LOCATION].lower()
         for coordinator in hass.data.get(DOMAIN, {}).values():
             if getattr(coordinator, "_location", None) == location:
                 await coordinator.async_request_refresh()
                 return
-        _LOGGER.warning("No Windfinder location '%s' found", location)
+        _LOGGER.warning("No Windfinder location '%s' found", call.data[CONF_LOCATION])
 
     hass.services.async_register(
         DOMAIN,
@@ -115,7 +115,7 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
         interval = timedelta(minutes=refresh_minutes)
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=interval)
         self._session = session
-        self._location = location
+        self._location = location.lower()
 
     async def _async_update_data(self):
         """Fetch and parse data from Windfinder."""

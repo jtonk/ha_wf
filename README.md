@@ -6,7 +6,7 @@ This repository contains a custom integration that displays wind conditions from
 
 1. Copy this repository into your Home Assistant `config` directory so the structure looks like `custom_components/windfinder`.
 2. Restart Home Assistant.
-3. Use HACS or the integrations page to add **Windfinder** and follow the setup flow to configure your location.
+3. Use HACS or the integrations page to add **Windfinder** and follow the setup flow to configure your location. The location value is normalised to lower case during setup, so capitalization does not matter.
 
 The integration refreshes data every 30 minutes by default. The update frequency
 can be adjusted later via the integration options in Home Assistant.
@@ -37,8 +37,9 @@ The sensor exposes the following attributes:
 ## Refresh Service
 
 In addition to the refresh button entity, the integration exposes a service
-`windfinder.refresh` to trigger an immediate update. Provide the `location`
-exactly as configured when calling the service. This can be used in
+`windfinder.refresh` to trigger an immediate update. The service takes a
+`location` parameter which is matched case-insensitively; the integration
+internally stores the location in lower case. This can be used in
 automations or scripts. Example:
 
 ```yaml
