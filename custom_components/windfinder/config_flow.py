@@ -22,8 +22,10 @@ class WindfinderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         if user_input is not None:
+            user_input[CONF_LOCATION] = user_input[CONF_LOCATION].lower()
             return self.async_create_entry(
-                title=user_input[CONF_LOCATION], data=user_input
+                title=user_input[CONF_LOCATION],
+                data=user_input,
             )
 
         return self.async_show_form(
@@ -45,6 +47,7 @@ class WindfinderOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input=None):
         if user_input is not None:
+            user_input[CONF_LOCATION] = user_input[CONF_LOCATION].lower()
             return self.async_create_entry(title="", data=user_input)
 
         return self.async_show_form(
