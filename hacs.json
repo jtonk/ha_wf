@@ -1,5 +1,7 @@
 {
   "name": "Windfinder",
   "domain": "windfinder",
-  "render_readme": true
+  "render_readme": true,
+  "filename": "kite-forecast-card.js",
+  "content_in_root": true
 }
