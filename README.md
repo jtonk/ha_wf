@@ -45,5 +45,5 @@ automations or scripts. Example:
 ```yaml
 service: windfinder.refresh
 data:
-  location: hawf_noordwijk
+  location: noordwijk
 ```
