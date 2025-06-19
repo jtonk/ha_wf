@@ -33,3 +33,16 @@ The sensor exposes the following attributes:
 - `superforecast_generated` / `superforecast_fetched` provide the same
   timestamps for the superforecast.
 - `spot_name` contains the name of the location as reported by Windfinder.
+
+## Refresh Service
+
+In addition to the refresh button entity, the integration exposes a service
+`windfinder.refresh` to trigger an immediate update. Provide the `location`
+exactly as configured when calling the service. This can be used in
+automations or scripts. Example:
+
+```yaml
+service: windfinder.refresh
+data:
+  location: hawf_noordwijk
+```

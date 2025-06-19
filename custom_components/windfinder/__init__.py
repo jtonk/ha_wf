@@ -8,8 +8,9 @@ from datetime import timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers import aiohttp_client
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers import aiohttp_client, config_validation as cv
+import voluptuous as vol
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
@@ -47,9 +48,28 @@ MONTHS = {
 
 _LOGGER = logging.getLogger(__name__)
 
+SERVICE_REFRESH = "refresh"
+SERVICE_REFRESH_SCHEMA = vol.Schema({vol.Required(CONF_LOCATION): cv.string})
+
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the Windfinder component."""
+
+    async def handle_refresh_service(call: ServiceCall) -> None:
+        location = call.data[CONF_LOCATION]
+        for coordinator in hass.data.get(DOMAIN, {}).values():
+            if getattr(coordinator, "_location", None) == location:
+                await coordinator.async_request_refresh()
+                return
+        _LOGGER.warning("No Windfinder location '%s' found", location)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REFRESH,
+        handle_refresh_service,
+        schema=SERVICE_REFRESH_SCHEMA,
+    )
+
     return True
 
 
