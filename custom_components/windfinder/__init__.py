@@ -10,6 +10,8 @@ from zoneinfo import ZoneInfo
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import aiohttp_client, config_validation as cv
+from homeassistant.const import ATTR_ENTITY_ID
+from homeassistant.helpers import entity_registry as er
 import voluptuous as vol
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
@@ -49,19 +51,28 @@ MONTHS = {
 _LOGGER = logging.getLogger(__name__)
 
 SERVICE_REFRESH = "refresh"
-SERVICE_REFRESH_SCHEMA = vol.Schema({vol.Required(CONF_LOCATION): cv.string})
+SERVICE_REFRESH_SCHEMA = vol.Schema({vol.Required(ATTR_ENTITY_ID): cv.entity_ids})
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the Windfinder component."""
 
     async def handle_refresh_service(call: ServiceCall) -> None:
-        location = call.data[CONF_LOCATION].lower()
-        for coordinator in hass.data.get(DOMAIN, {}).values():
-            if getattr(coordinator, "_location", None) == location:
+        entity_ids = call.data[ATTR_ENTITY_ID]
+        if isinstance(entity_ids, str):
+            entity_ids = [entity_ids]
+        registry = er.async_get(hass)
+        for entity_id in entity_ids:
+            entity_entry = registry.async_get(entity_id)
+            coordinator = None
+            if entity_entry:
+                coordinator = hass.data.get(DOMAIN, {}).get(
+                    entity_entry.config_entry_id
+                )
+            if coordinator:
                 await coordinator.async_request_refresh()
-                return
-        _LOGGER.warning("No Windfinder location '%s' found", call.data[CONF_LOCATION])
+            else:
+                _LOGGER.warning("No Windfinder entity '%s' found", entity_id)
 
     hass.services.async_register(
         DOMAIN,
@@ -79,9 +90,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     session = aiohttp_client.async_get_clientsession(hass)
 
-    refresh_minutes = entry.options.get(
-        CONF_REFRESH_INTERVAL, DEFAULT_REFRESH_INTERVAL
-    )
+    refresh_minutes = entry.options.get(CONF_REFRESH_INTERVAL, DEFAULT_REFRESH_INTERVAL)
     coordinator = WindfinderDataUpdateCoordinator(
         hass,
         session=session,
@@ -99,9 +108,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(
-        entry, PLATFORMS
-    )
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
     return unload_ok
@@ -127,9 +134,7 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
                 resp.raise_for_status()
                 forecast_html = await resp.text()
 
-            async with self._session.get(
-                superforecast_url, timeout=10
-            ) as resp:
+            async with self._session.get(superforecast_url, timeout=10) as resp:
                 resp.raise_for_status()
                 superforecast_html = await resp.text()
 
@@ -138,9 +143,7 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
                 if self.hass.config.time_zone
                 else timezone.utc
             )
-            forecast = _parse_html(
-                forecast_html, forecast_url, "forecast", local_tz
-            )
+            forecast = _parse_html(forecast_html, forecast_url, "forecast", local_tz)
             superforecast = _parse_html(
                 superforecast_html,
                 superforecast_url,
@@ -227,9 +230,7 @@ def _parse_html(
             temp_el = row.select_one(".cell-weather-2 .data-temp .units-at")
             rain_el = row.select_one(".cell-weather-1 .data-rain .units-pr")
             wave_dir_el = row.select_one(".cell-waves-1 .directionarrow")
-            wave_height_el = row.select_one(
-                ".cell-waves-2 .data-waveheight .units-wh"
-            )
+            wave_height_el = row.select_one(".cell-waves-2 .data-waveheight .units-wh")
             wave_freq_el = row.select_one(".cell-waves-2 .data-wavefreq")
             cloud_el = row.select_one(".data-cover .units-cl-perc")
             pressure_el = row.select_one(".data-pressure .units-ap")
@@ -251,26 +252,16 @@ def _parse_html(
                 {
                     "datetime": dt.isoformat(),
                     "wind_speed_kn": float(speed_el.text.strip()),
-                    "wind_gust_kn": (
-                        float(gust_el.text.strip()) if gust_el else None
-                    ),
+                    "wind_gust_kn": (float(gust_el.text.strip()) if gust_el else None),
                     "wind_direction_deg": dir_deg,
-                    "wind_direction": (
-                        dir_txt.text.strip() if dir_txt else None
-                    ),
+                    "wind_direction": (dir_txt.text.strip() if dir_txt else None),
                     "temperature_c": (
-                        float(
-                            temp_el.get("data-value") or temp_el.text.strip()
-                        )
+                        float(temp_el.get("data-value") or temp_el.text.strip())
                         if temp_el
                         else None
                     ),
                     "rain_mm": (
-                        float(
-                            rain_el.get("data-value")
-                            or rain_el.text.strip()
-                            or 0
-                        )
+                        float(rain_el.get("data-value") or rain_el.text.strip() or 0)
                         if rain_el
                         else 0
                     ),
@@ -291,10 +282,7 @@ def _parse_html(
                         else None
                     ),
                     "air_pressure_hpa": (
-                        float(
-                            pressure_el.get("data-value")
-                            or pressure_el.text.strip()
-                        )
+                        float(pressure_el.get("data-value") or pressure_el.text.strip())
                         if pressure_el and pressure_el.text.strip()
                         else None
                     ),
