@@ -37,13 +37,13 @@ The sensor exposes the following attributes:
 ## Refresh Service
 
 In addition to the refresh button entity, the integration exposes a service
-`windfinder.refresh` to trigger an immediate update. The service takes a
-`location` parameter which is matched case-insensitively; the integration
-internally stores the location in lower case. This can be used in
-automations or scripts. Example:
+`windfinder.refresh` to trigger an immediate update. The service now expects
+an `entity_id` pointing to the Windfinder sensor or refresh button. The
+integration will look up the location configured for that entity and refresh
+its data. Example:
 
 ```yaml
 service: windfinder.refresh
 data:
-  location: noordwijk
+  entity_id: sensor.windfinder_noordwijk
 ```
