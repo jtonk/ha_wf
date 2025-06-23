@@ -3,50 +3,34 @@
 from __future__ import annotations
 
 import logging
-
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import aiohttp_client, config_validation as cv
-from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.helpers import entity_registry as er
-import voluptuous as vol
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
 )
+import voluptuous as vol
 
-from bs4 import BeautifulSoup
 import re
-from datetime import datetime
+from bs4 import BeautifulSoup
 
 
 from .const import (
-    DOMAIN,
     CONF_LOCATION,
-    FORECAST_URL,
-    SUPERFORECAST_URL,
-    PLATFORMS,
     CONF_REFRESH_INTERVAL,
     DEFAULT_REFRESH_INTERVAL,
+    DOMAIN,
+    FORECAST_URL,
+    MONTHS,
+    PLATFORMS,
+    SUPERFORECAST_URL,
 )
-
-MONTHS = {
-    "Jan": 1,
-    "Feb": 2,
-    "Mar": 3,
-    "Apr": 4,
-    "May": 5,
-    "Jun": 6,
-    "Jul": 7,
-    "Aug": 8,
-    "Sep": 9,
-    "Oct": 10,
-    "Nov": 11,
-    "Dec": 12,
-}
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -138,6 +122,7 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
                 resp.raise_for_status()
                 superforecast_html = await resp.text()
 
+            # Use Home Assistant's configured time zone if available
             local_tz = (
                 ZoneInfo(self.hass.config.time_zone)
                 if self.hass.config.time_zone
@@ -162,9 +147,12 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
 
 
 def _parse_html(
-    html: str, url: str, forecast_type: str, local_tz: timezone = timezone.utc
+    html: str,
+    url: str,
+    forecast_type: str,
+    local_tz: timezone = timezone.utc,
 ) -> dict:
-    """Parse forecast HTML from Windfinder."""
+    """Parse a Windfinder HTML table into structured data."""
     soup = BeautifulSoup(html, "html.parser")
 
     forecasts = []
@@ -173,6 +161,7 @@ def _parse_html(
     spot_name = spot_name_el.text.strip() if spot_name_el else None
 
     generated_at = None
+    # Windfinder only provides the hour and minute of the last update.
     last_update = soup.select_one("#last-update")
     if last_update:
         m = re.match(r"(\d{1,2}):(\d{2})", last_update.text.strip())
@@ -188,6 +177,8 @@ def _parse_html(
             )
             generated_at = dt_local.astimezone(timezone.utc).isoformat()
 
+    year = datetime.now(local_tz).year
+
     for day in soup.select(".forecast-day"):
         headline = day.select_one(".weathertable__headline")
         if not headline:
@@ -200,14 +191,15 @@ def _parse_html(
             month = MONTHS[parts[1]]
             day_num = int(parts[2])
         except (KeyError, ValueError):
+            # Skip rows that do not contain a valid date
             continue
-        year = datetime.now(local_tz).year
 
         for row in day.select(".weathertable__row"):
             hour_el = row.select_one(".data-time .value")
             speed_el = row.select_one(".cell-wind-3 .units-ws")
             if not hour_el or not speed_el:
                 continue
+            # Extract hour and build a timezone-aware datetime
             hour_text = hour_el.text.strip()
             m = re.search(r"(\d+)", hour_text)
             if not m:
@@ -236,6 +228,7 @@ def _parse_html(
             pressure_el = row.select_one(".data-pressure .units-ap")
 
             wave_dir = None
+            # Direction arrow uses a CSS rotate() transform
             if wave_dir_el and wave_dir_el.has_attr("style"):
                 m = re.search(r"rotate\(([^)]+)deg\)", wave_dir_el["style"])
 
@@ -244,6 +237,7 @@ def _parse_html(
 
             wave_interval = None
             if wave_freq_el:
+                # Extract interval from text like "8 s"
                 m = re.search(r"(\d+)\s*s", wave_freq_el.text.strip())
                 if m:
                     wave_interval = int(m.group(1))
@@ -289,6 +283,7 @@ def _parse_html(
                 }
             )
 
+    # Bundle parsed results together with metadata
     return {
         forecast_type + "data": forecasts,
         forecast_type + "_fetched": datetime.now(timezone.utc).isoformat(),
