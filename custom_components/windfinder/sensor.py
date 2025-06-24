@@ -26,6 +26,7 @@ class WindfinderSensor(CoordinatorEntity, SensorEntity):
     """Representation of a Windfinder sensor for one location."""
 
     _attr_should_poll = False
+    _attr_icon = "mdi:windsock"
 
     def __init__(self, coordinator, entry: ConfigEntry):
         super().__init__(coordinator)
