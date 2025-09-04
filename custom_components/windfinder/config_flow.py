@@ -15,7 +15,7 @@ from .const import (
 )
 
 
-class WindfinderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Windfinder."""
 
     VERSION = 1
