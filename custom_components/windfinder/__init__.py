@@ -332,8 +332,12 @@ def _parse_html(
                 }
             )
 
-    current_markup_forecasts = _parse_fc_day_rows(soup, local_tz)
     astro_layout_forecasts = _parse_astro_layout_data(soup, local_tz)
+    current_markup_forecasts = _parse_fc_day_rows(
+        soup,
+        local_tz,
+        [item["datetime"] for item in astro_layout_forecasts if item.get("datetime")],
+    )
 
     if astro_layout_forecasts and len(astro_layout_forecasts) > len(forecasts):
         forecasts = _merge_forecasts(astro_layout_forecasts, current_markup_forecasts)
@@ -488,7 +492,11 @@ def _spot_name_from_meta(soup: BeautifulSoup) -> str | None:
     return None
 
 
-def _parse_fc_day_rows(soup: BeautifulSoup, local_tz: timezone) -> list[dict]:
+def _parse_fc_day_rows(
+    soup: BeautifulSoup,
+    local_tz: timezone,
+    known_datetimes: list[str] | None = None,
+) -> list[dict]:
     """Parse current Windfinder day/row markup."""
     forecasts: list[dict] = []
     seen_datetimes: set[str] = set()
@@ -545,6 +553,65 @@ def _parse_fc_day_rows(soup: BeautifulSoup, local_tz: timezone) -> list[dict]:
                     "air_pressure_hpa": _as_float(_first_text(row, (".cell-ap",))),
                 }
             )
+
+    if forecasts:
+        return forecasts
+
+    known_hours: list[tuple[str, int]] = []
+    if known_datetimes:
+        for dt_iso in known_datetimes:
+            try:
+                dt_local = datetime.fromisoformat(dt_iso).astimezone(local_tz)
+            except ValueError:
+                continue
+            known_hours.append((dt_iso, dt_local.hour))
+
+    known_index = 0
+    for row in soup.select(".fc-table-horizon.visible-md"):
+        hour_text = _first_text(row, (".cell-ts",))
+        hour = _extract_hour(hour_text)
+        if hour is None:
+            continue
+
+        dt_iso = _row_datetime_iso(row, local_tz)
+        if dt_iso is None and known_hours:
+            while known_index < len(known_hours):
+                candidate_iso, candidate_hour = known_hours[known_index]
+                known_index += 1
+                if candidate_hour == hour:
+                    dt_iso = candidate_iso
+                    break
+
+        if dt_iso is None or dt_iso in seen_datetimes:
+            continue
+        seen_datetimes.add(dt_iso)
+
+        wind_dir_title = None
+        for child in row.find_all("div", recursive=False):
+            classes = child.get("class", [])
+            if "cell-wd" in classes:
+                wind_dir_title = child.select_one("svg title")
+                break
+
+        forecasts.append(
+            {
+                "datetime": dt_iso,
+                "wind_speed_kn": _as_float(_first_text(row, (".cell-ws .unit", ".cell-ws"))),
+                "wind_gust_kn": _as_float(_first_text(row, (".cell-wg .unit", ".cell-wg"))),
+                "wind_direction_deg": _svg_title_to_float(wind_dir_title),
+                "wind_direction": None,
+                "temperature_c": _as_float(_first_text(row, (".cell-at .unit", ".cell-at"))),
+                "rain_mm": _as_float(_first_text(row, (".cell-p .unit", ".cell-p")), default=0),
+                "wave_direction_deg": _svg_title_to_float(
+                    row.select_one(".cell-waves-wrapper .cell-wd svg title")
+                ),
+                "wave_height_m": _as_float(_first_text(row, (".cell-wh",))),
+                "wave_interval_s": _as_int(_first_text(row, (".cell-wp",))),
+                "night_hour": "is-night" in row.get("class", []),
+                "cloud_cover_pct": _as_int(_first_text(row, (".cell-cl .unit", ".cell-cl"))),
+                "air_pressure_hpa": _as_float(_first_text(row, (".cell-ap",))),
+            }
+        )
 
     return forecasts
 
