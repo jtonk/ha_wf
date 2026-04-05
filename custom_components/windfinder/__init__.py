@@ -485,21 +485,33 @@ def _spot_name_from_meta(soup: BeautifulSoup) -> str | None:
 def _parse_fc_day_rows(soup: BeautifulSoup, local_tz: timezone) -> list[dict]:
     """Parse current Windfinder day/row markup."""
     forecasts: list[dict] = []
+    seen_datetimes: set[str] = set()
     now = datetime.now(local_tz)
     for day in soup.select(".fc-day"):
         headline = _first_text(day, (".fc-day-headline span", ".fc-day-headline"))
-        if not headline:
-            continue
+        parsed_date = _parse_headline_date(headline, now) if headline else None
 
-        parsed_date = _parse_headline_date(headline, now)
-        if not parsed_date:
-            continue
-
-        for row in day.select(".fc-table-horizon.visible-md"):
+        # Parse all horizon rows, not only a specific responsive variant.
+        for row in day.select(".fc-table-horizon"):
             hour_text = _first_text(row, (".cell-ts",))
             hour = _extract_hour(hour_text)
-            if hour is None:
+            dt_iso = _row_datetime_iso(row, local_tz)
+            if dt_iso is None:
+                if parsed_date is None or hour is None:
+                    continue
+                dt_local = datetime(
+                    parsed_date.year,
+                    parsed_date.month,
+                    parsed_date.day,
+                    hour,
+                    tzinfo=local_tz,
+                )
+                dt_iso = dt_local.astimezone(timezone.utc).isoformat()
+
+            # Multiple responsive tables can contain the same timestamp.
+            if dt_iso in seen_datetimes:
                 continue
+            seen_datetimes.add(dt_iso)
 
             wind_dir_title = None
             for child in row.find_all("div", recursive=False):
@@ -508,16 +520,9 @@ def _parse_fc_day_rows(soup: BeautifulSoup, local_tz: timezone) -> list[dict]:
                     wind_dir_title = child.select_one("svg title")
                     break
 
-            dt_local = datetime(
-                parsed_date.year,
-                parsed_date.month,
-                parsed_date.day,
-                hour,
-                tzinfo=local_tz,
-            )
             forecasts.append(
                 {
-                    "datetime": dt_local.astimezone(timezone.utc).isoformat(),
+                    "datetime": dt_iso,
                     "wind_speed_kn": _as_float(_first_text(row, (".cell-ws .unit", ".cell-ws"))),
                     "wind_gust_kn": _as_float(_first_text(row, (".cell-wg .unit", ".cell-wg"))),
                     "wind_direction_deg": _svg_title_to_float(wind_dir_title),
@@ -536,6 +541,25 @@ def _parse_fc_day_rows(soup: BeautifulSoup, local_tz: timezone) -> list[dict]:
             )
 
     return forecasts
+
+
+def _row_datetime_iso(row, local_tz: timezone) -> str | None:
+    """Extract a row datetime from common Windfinder data attributes."""
+    for key in ("data-ts", "data-time", "data-timestamp", "data-dt", "datetime"):
+        value = row.get(key)
+        if value in (None, ""):
+            continue
+        if isinstance(value, Number) or str(value).strip().isdigit():
+            timestamp = float(value)
+            # Milliseconds are sometimes used for JS timestamps.
+            if timestamp > 1_000_000_000_000:
+                timestamp /= 1000
+            dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            return dt.isoformat()
+        normalized = _normalize_datetime(value, local_tz)
+        if normalized:
+            return normalized
+    return None
 
 
 def _extract_hour(value: str | None) -> int | None:
