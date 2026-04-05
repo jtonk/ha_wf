@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
+from numbers import Number
 from zoneinfo import ZoneInfo
 
 from homeassistant.config_entries import ConfigEntry
@@ -74,11 +75,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     session = aiohttp_client.async_get_clientsession(hass)
 
+    location = entry.options.get(CONF_LOCATION, entry.data[CONF_LOCATION])
     refresh_minutes = entry.options.get(CONF_REFRESH_INTERVAL, DEFAULT_REFRESH_INTERVAL)
     coordinator = WindfinderDataUpdateCoordinator(
         hass,
         session=session,
-        location=entry.data[CONF_LOCATION],
+        location=location,
         refresh_minutes=refresh_minutes,
     )
     await coordinator.async_config_entry_first_refresh()
@@ -245,26 +247,23 @@ def _parse_html(
             forecasts.append(
                 {
                     "datetime": dt.isoformat(),
-                    "wind_speed_kn": float(speed_el.text.strip()),
-                    "wind_gust_kn": (float(gust_el.text.strip()) if gust_el else None),
+                    "wind_speed_kn": _as_float(speed_el.text),
+                    "wind_gust_kn": _as_float(gust_el.text if gust_el else None),
                     "wind_direction_deg": dir_deg,
                     "wind_direction": (dir_txt.text.strip() if dir_txt else None),
                     "temperature_c": (
-                        float(temp_el.get("data-value") or temp_el.text.strip())
+                        _as_float(temp_el.get("data-value") or temp_el.text)
                         if temp_el
                         else None
                     ),
                     "rain_mm": (
-                        float(rain_el.get("data-value") or rain_el.text.strip() or 0)
+                        _as_float(rain_el.get("data-value") or rain_el.text, default=0)
                         if rain_el
                         else 0
                     ),
                     "wave_direction_deg": wave_dir,
                     "wave_height_m": (
-                        float(
-                            wave_height_el.get("data-value")
-                            or wave_height_el.text.strip()
-                        )
+                        _as_float(wave_height_el.get("data-value") or wave_height_el.text)
                         if wave_height_el
                         else None
                     ),
@@ -276,7 +275,7 @@ def _parse_html(
                         else None
                     ),
                     "air_pressure_hpa": (
-                        float(pressure_el.get("data-value") or pressure_el.text.strip())
+                        _as_float(pressure_el.get("data-value") or pressure_el.text)
                         if pressure_el and pressure_el.text.strip()
                         else None
                     ),
@@ -290,3 +289,26 @@ def _parse_html(
         forecast_type + "_generated": generated_at,
         "spot_name": spot_name,
     }
+
+
+def _as_float(value, default=None):
+    """Convert a Windfinder value to float.
+
+    Windfinder may return localized decimal separators or placeholders such
+    as '-' in table cells; this helper normalizes such values.
+    """
+    if value is None:
+        return default
+
+    if isinstance(value, Number):
+        return float(value)
+
+    text = str(value).strip()
+    if not text or text in {"-", "—", "–"}:
+        return default
+
+    text = text.replace(",", ".")
+    try:
+        return float(text)
+    except ValueError:
+        return default

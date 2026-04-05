@@ -44,7 +44,7 @@ class WindfinderSensor(CoordinatorEntity, SensorEntity):
         return self.coordinator.last_update_success
 
     @property
-    def state(self):
+    def native_value(self):
         data = self.coordinator.data or {}
         forecast_generated = data.get("forecast_generated")
         superforecast_generated = data.get("superforecast_generated")
