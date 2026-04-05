@@ -643,6 +643,25 @@ def _merge_forecasts(primary: list[dict], overlay: list[dict]) -> list[dict]:
     return merged
 
 
+def _row_datetime_iso(row, local_tz: timezone) -> str | None:
+    """Extract a row datetime from common Windfinder data attributes."""
+    for key in ("data-ts", "data-time", "data-timestamp", "data-dt", "datetime"):
+        value = row.get(key)
+        if value in (None, ""):
+            continue
+        if isinstance(value, Number) or str(value).strip().isdigit():
+            timestamp = float(value)
+            # Milliseconds are sometimes used for JS timestamps.
+            if timestamp > 1_000_000_000_000:
+                timestamp /= 1000
+            dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            return dt.isoformat()
+        normalized = _normalize_datetime(value, local_tz)
+        if normalized:
+            return normalized
+    return None
+
+
 def _extract_hour(value: str | None) -> int | None:
     """Extract an hour from strings like '02h'."""
     if not value:
