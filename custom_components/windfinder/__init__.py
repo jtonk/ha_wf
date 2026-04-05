@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, timedelta, timezone
-from email.utils import parsedate_to_datetime
 from numbers import Number
 from zoneinfo import ZoneInfo
 
@@ -37,8 +36,6 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-MPS_TO_KNOTS = 1.9438444924406048
 
 SERVICE_REFRESH = "refresh"
 SERVICE_REFRESH_SCHEMA = vol.Schema({vol.Required(ATTR_ENTITY_ID): cv.entity_ids})
@@ -161,8 +158,10 @@ def _parse_html(
 ) -> dict:
     """Parse a Windfinder HTML table into structured data."""
     soup = BeautifulSoup(html, "html.parser")
-    spot_meta = _astro_component_props(soup, "SpotMeta")
-    spot_name = _spot_name_from_astro(spot_meta) or _first_text(
+
+    forecasts = []
+
+    spot_name = _first_text(
         soup,
         (
             "#spotheader-spotname",
@@ -175,44 +174,188 @@ def _parse_html(
     if not spot_name:
         spot_name = _spot_name_from_meta(soup)
 
-    last_update, next_update = _parse_astro_update_info(
+    generated_at = None
+    # Windfinder only provides the hour and minute of the last update.
+    last_update = _first_text(
         soup,
-        forecast_type,
-        spot_meta,
-        local_tz,
+        (
+            "#last-update",
+            "[data-testid='last-update']",
+            ".last-update",
+        ),
     )
+    if last_update:
+        m = re.search(r"(\d{1,2}):(\d{2})", last_update)
+        if m:
+            now = datetime.now(local_tz)
+            dt_local = datetime(
+                now.year,
+                now.month,
+                now.day,
+                int(m.group(1)),
+                int(m.group(2)),
+                tzinfo=local_tz,
+            )
+            generated_at = dt_local.astimezone(timezone.utc).isoformat()
 
-    astro_forecasts = _parse_astro_forecast_data(soup, local_tz)
+    now = datetime.now(local_tz)
+
+    for day in soup.select(".forecast-day, .weathertable, [data-testid='forecast-day']"):
+        headline = day.select_one(
+            ".weathertable__headline, .forecast-day__headline, [data-testid='day-headline']"
+        )
+        if not headline:
+            continue
+        parsed_date = _parse_headline_date(headline.text, now)
+        if not parsed_date:
+            # Skip rows that do not contain a valid date
+            continue
+
+        for row in day.select(".weathertable__row, tr, [data-testid='forecast-row']"):
+            hour_text = _first_text(
+                row,
+                (
+                    ".data-time .value",
+                    ".cell-time .value",
+                    ".data-time",
+                    "[data-testid='hour']",
+                ),
+            )
+            speed_text = _first_text(
+                row,
+                (
+                    ".cell-wind-3 .units-ws",
+                    ".data-wind .units-ws",
+                    "[data-testid='wind-speed']",
+                ),
+            ) or row.get("data-wind-speed")
+
+            if not hour_text or speed_text is None:
+                continue
+            # Extract hour and build a timezone-aware datetime
+            m = re.search(r"(\d+)", hour_text)
+            if not m:
+                continue
+            hour = int(m.group(1))
+            dt_local = datetime(
+                parsed_date.year,
+                parsed_date.month,
+                parsed_date.day,
+                hour,
+                tzinfo=local_tz,
+            )
+            dt = dt_local.astimezone(timezone.utc)
+
+            gust_text = _first_text(
+                row,
+                (
+                    ".cell-wind-3 .data-gusts .units-ws",
+                    "[data-testid='wind-gust']",
+                ),
+            ) or row.get("data-wind-gust")
+            dir_icon = row.select_one(".cell-wind-2 .icon-pointer-solid")
+            dir_txt = _first_text(
+                row,
+                (
+                    ".cell-wind-2 .units-wd-dir",
+                    "[data-testid='wind-direction']",
+                ),
+            )
+
+            dir_deg = None
+            if dir_icon and dir_icon.has_attr("title"):
+                try:
+                    dir_deg = float(dir_icon["title"].replace("°", ""))
+                except ValueError:
+                    pass
+            if dir_deg is None:
+                dir_deg = _as_float(row.get("data-wind-direction-deg"))
+
+            temp_el = row.select_one(".cell-weather-2 .data-temp .units-at")
+            rain_el = row.select_one(".cell-weather-1 .data-rain .units-pr")
+            wave_dir_el = row.select_one(".cell-waves-1 .directionarrow")
+            wave_height_el = row.select_one(".cell-waves-2 .data-waveheight .units-wh")
+            wave_freq_el = row.select_one(".cell-waves-2 .data-wavefreq")
+            cloud_el = row.select_one(".data-cover .units-cl-perc")
+            pressure_el = row.select_one(".data-pressure .units-ap")
+
+            wave_dir = None
+            # Direction arrow uses a CSS rotate() transform
+            if wave_dir_el and wave_dir_el.has_attr("style"):
+                m = re.search(r"rotate\(([^)]+)deg\)", wave_dir_el["style"])
+
+                if m:
+                    wave_dir = float(m.group(1))
+
+            wave_interval = None
+            if wave_freq_el:
+                # Extract interval from text like "8 s"
+                m = re.search(r"(\d+)\s*s", wave_freq_el.text.strip())
+                if m:
+                    wave_interval = int(m.group(1))
+
+            forecasts.append(
+                {
+                    "datetime": dt.isoformat(),
+                    "wind_speed_kn": _as_float(speed_text),
+                    "wind_gust_kn": _as_float(gust_text),
+                    "wind_direction_deg": dir_deg,
+                    "wind_direction": dir_txt,
+                    "temperature_c": (
+                        _as_float(temp_el.get("data-value") or temp_el.text)
+                        if temp_el
+                        else None
+                    ),
+                    "rain_mm": (
+                        _as_float(rain_el.get("data-value") or rain_el.text, default=0)
+                        if rain_el
+                        else 0
+                    ),
+                    "wave_direction_deg": wave_dir,
+                    "wave_height_m": (
+                        _as_float(wave_height_el.get("data-value") or wave_height_el.text)
+                        if wave_height_el
+                        else None
+                    ),
+                    "wave_interval_s": wave_interval,
+                    "night_hour": "row-stripe" in row.get("class", []),
+                    "cloud_cover_pct": (
+                        int(cloud_el.text.replace("%", "").strip())
+                        if cloud_el and cloud_el.text.strip()
+                        else None
+                    ),
+                    "air_pressure_hpa": (
+                        _as_float(pressure_el.get("data-value") or pressure_el.text)
+                        if pressure_el and pressure_el.text.strip()
+                        else None
+                    ),
+                }
+            )
+
     astro_layout_forecasts = _parse_astro_layout_data(soup, local_tz)
     current_markup_forecasts = _parse_fc_day_rows(
         soup,
         local_tz,
-        [
-            item["datetime"]
-            for item in astro_forecasts + astro_layout_forecasts
-            if item.get("datetime")
-        ],
+        [item["datetime"] for item in astro_layout_forecasts if item.get("datetime")],
     )
 
-    forecasts = _combine_forecasts(
-        astro_layout_forecasts,
-        current_markup_forecasts,
-        astro_forecasts,
-    )
+    if astro_layout_forecasts and len(astro_layout_forecasts) > len(forecasts):
+        forecasts = _merge_forecasts(astro_layout_forecasts, current_markup_forecasts)
+    elif not forecasts and current_markup_forecasts:
+        forecasts = current_markup_forecasts
+
+    if not forecasts:
+        _LOGGER.debug(
+            "No rows parsed from %s HTML table, trying embedded JSON fallback", url
+        )
+        forecasts = _parse_embedded_json(soup, local_tz)
 
     # Bundle parsed results together with metadata
     return {
         forecast_type + "data": forecasts,
         forecast_type + "_fetched": datetime.now(timezone.utc).isoformat(),
-        forecast_type + "_generated": last_update,
-        forecast_type + "_last_update": last_update,
-        forecast_type + "_next_update": next_update,
+        forecast_type + "_generated": generated_at,
         "spot_name": spot_name,
-        "spot_timezone": (
-            spot_meta.get("spot", {}).get("o_id")
-            if isinstance(spot_meta, dict)
-            else None
-        ),
     }
 
 
@@ -349,224 +492,6 @@ def _spot_name_from_meta(soup: BeautifulSoup) -> str | None:
     return None
 
 
-def _astro_component_props(soup: BeautifulSoup, component_name: str) -> dict | None:
-    """Decode Astro component props for a named component fragment."""
-    island = soup.select_one(f"astro-island[component-url*='{component_name}']")
-    if not island:
-        return None
-
-    raw_props = island.get("props")
-    if not raw_props:
-        return None
-
-    try:
-        props = json.loads(html_lib.unescape(raw_props))
-    except json.JSONDecodeError:
-        return None
-
-    decoded = _decode_astro_value(props)
-    return decoded if isinstance(decoded, dict) else None
-
-
-def _spot_name_from_astro(spot_meta: dict | None) -> str | None:
-    """Extract the spot name from SpotMeta Astro props."""
-    if not isinstance(spot_meta, dict):
-        return None
-
-    spot = spot_meta.get("spot")
-    if not isinstance(spot, dict):
-        return None
-
-    name = spot.get("n")
-    return str(name).strip() if name else None
-
-
-def _parse_astro_update_info(
-    soup: BeautifulSoup,
-    forecast_type: str,
-    spot_meta: dict | None,
-    local_tz: timezone,
-) -> tuple[str | None, str | None]:
-    """Parse last/next update timestamps from Astro props or metadata fallback."""
-    props = _astro_component_props(soup, "ForecastUpdateInfo")
-    last_update = (
-        _parse_http_datetime(props.get("lastUpdate"), local_tz)
-        if isinstance(props, dict)
-        else None
-    )
-    next_update = (
-        _parse_http_datetime(props.get("expires"), local_tz)
-        if isinstance(props, dict)
-        else None
-    )
-
-    if next_update is None:
-        next_update = _next_update_from_spot_meta(
-            spot_meta,
-            forecast_type,
-            last_update,
-            local_tz,
-        )
-
-    return last_update, next_update
-
-
-def _parse_astro_forecast_data(
-    soup: BeautifulSoup,
-    local_tz: timezone,
-) -> list[dict]:
-    """Parse forecast rows from Windfinder's structured Astro props."""
-    props = _astro_component_props(soup, "ForecastDataInit")
-    if not isinstance(props, dict):
-        return []
-
-    fc_section_data = props.get("fcSectionData")
-    forecasts: list[dict] = []
-
-    for day in _iter_astro_forecast_days(fc_section_data):
-        horizons = day.get("horizons")
-        if not isinstance(horizons, list):
-            continue
-
-        for horizon in horizons:
-            if not isinstance(horizon, dict):
-                continue
-
-            fc_data = horizon.get("fcData")
-            if not isinstance(fc_data, dict):
-                continue
-
-            dt_iso = _normalize_datetime(
-                fc_data.get("dt") or fc_data.get("dtl"),
-                local_tz,
-            )
-            if not dt_iso:
-                continue
-
-            tide_data = horizon.get("tideData")
-            has_wave_data = bool(horizon.get("hasWaveData"))
-            has_tide_data = bool(horizon.get("hasTideData"))
-
-            forecasts.append(
-                {
-                    "datetime": dt_iso,
-                    "wind_speed_kn": _mps_to_knots(fc_data.get("ws")),
-                    "wind_gust_kn": _mps_to_knots(fc_data.get("wg")),
-                    "wind_direction_deg": _as_float(fc_data.get("wd")),
-                    "wind_direction": None,
-                    "temperature_c": _kelvin_to_c(fc_data.get("at")),
-                    "feels_like_c": _kelvin_to_c(fc_data.get("fl")),
-                    "rain_mm": _as_float(fc_data.get("p"), default=0),
-                    "precipitation_type": fc_data.get("pt"),
-                    "wave_direction_deg": (
-                        _as_float(fc_data.get("wad")) if has_wave_data else None
-                    ),
-                    "wave_height_m": (
-                        _as_float(fc_data.get("wah")) if has_wave_data else None
-                    ),
-                    "wave_interval_s": (
-                        _as_int(fc_data.get("wap")) if has_wave_data else None
-                    ),
-                    "night_hour": bool(horizon.get("isNight")),
-                    "cloud_cover_pct": _normalize_cloud_cover_pct(fc_data.get("cl")),
-                    "relative_humidity_pct": _as_int(fc_data.get("rh")),
-                    "air_pressure_hpa": _as_float(fc_data.get("ap")),
-                    "tide_datetime": (
-                        _normalize_datetime(tide_data.get("dtl"), local_tz)
-                        if has_tide_data and isinstance(tide_data, dict)
-                        else None
-                    ),
-                    "tide_type": (
-                        tide_data.get("tp")
-                        if has_tide_data and isinstance(tide_data, dict)
-                        else None
-                    ),
-                    "tide_height_m": (
-                        _as_float(tide_data.get("th"))
-                        if has_tide_data and isinstance(tide_data, dict)
-                        else None
-                    ),
-                }
-            )
-
-    return forecasts
-
-
-def _iter_astro_forecast_days(node):
-    """Yield day objects from nested Astro forecast data."""
-    if isinstance(node, dict):
-        horizons = node.get("horizons")
-        if isinstance(horizons, list):
-            yield node
-        return
-
-    if isinstance(node, list):
-        for item in node:
-            yield from _iter_astro_forecast_days(item)
-
-
-def _next_update_from_spot_meta(
-    spot_meta: dict | None,
-    forecast_type: str,
-    last_update: str | None,
-    local_tz: timezone,
-) -> str | None:
-    """Approximate the next model update from SpotMeta when page update info is absent."""
-    if not isinstance(spot_meta, dict):
-        return None
-
-    spot = spot_meta.get("spot")
-    if not isinstance(spot, dict):
-        return None
-
-    forecast_products = spot.get("forecast_products")
-    if not isinstance(forecast_products, list):
-        return None
-
-    product_id = "sfc" if forecast_type == "superforecast" else "gfs"
-    last_update_dt = None
-    if last_update:
-        try:
-            last_update_dt = datetime.fromisoformat(last_update)
-        except ValueError:
-            last_update_dt = None
-
-    for product in forecast_products:
-        if not isinstance(product, dict) or product.get("id") != product_id:
-            continue
-
-        candidate_times: list[datetime] = []
-        forecast_models = product.get("forecast_models")
-        if not isinstance(forecast_models, list):
-            continue
-
-        for model in forecast_models:
-            if not isinstance(model, dict):
-                continue
-            for raw_update in model.get("update_times") or []:
-                normalized = _normalize_datetime(raw_update, local_tz)
-                if not normalized:
-                    continue
-                try:
-                    candidate_times.append(datetime.fromisoformat(normalized))
-                except ValueError:
-                    continue
-
-        if not candidate_times:
-            continue
-
-        candidate_times.sort()
-        if last_update_dt:
-            for candidate in candidate_times:
-                if candidate > last_update_dt:
-                    return candidate.isoformat()
-            return (candidate_times[0] + timedelta(days=1)).isoformat()
-
-        return candidate_times[0].isoformat()
-
-    return None
-
-
 def _parse_fc_day_rows(
     soup: BeautifulSoup,
     local_tz: timezone,
@@ -617,7 +542,6 @@ def _parse_fc_day_rows(
                     "wind_direction_deg": _svg_title_to_float(wind_dir_title),
                     "wind_direction": None,
                     "temperature_c": _as_float(_first_text(row, (".cell-at .unit", ".cell-at"))),
-                    "feels_like_c": _as_float(_first_text(row, (".cell-fl .unit", ".cell-fl"))),
                     "rain_mm": _as_float(_first_text(row, (".cell-p .unit", ".cell-p")), default=0),
                     "wave_direction_deg": _svg_title_to_float(
                         row.select_one(".cell-waves-wrapper .cell-wd svg title")
@@ -626,18 +550,7 @@ def _parse_fc_day_rows(
                     "wave_interval_s": _as_int(_first_text(row, (".cell-wp",))),
                     "night_hour": "is-night" in row.get("class", []),
                     "cloud_cover_pct": _as_int(_first_text(row, (".cell-cl .unit", ".cell-cl"))),
-                    "relative_humidity_pct": _as_int(
-                        _first_text(row, (".cell-hum .unit", ".cell-hum"))
-                    ),
                     "air_pressure_hpa": _as_float(_first_text(row, (".cell-ap",))),
-                    "tide_datetime": _row_time_to_iso(
-                        dt_iso,
-                        _first_text(row, (".cell-tide-time .unit", ".cell-tide-time")),
-                        local_tz,
-                    ),
-                    "tide_height_m": _as_float(
-                        _first_text(row, (".cell-th .unit", ".cell-th"))
-                    ),
                 }
             )
 
@@ -688,7 +601,6 @@ def _parse_fc_day_rows(
                 "wind_direction_deg": _svg_title_to_float(wind_dir_title),
                 "wind_direction": None,
                 "temperature_c": _as_float(_first_text(row, (".cell-at .unit", ".cell-at"))),
-                "feels_like_c": _as_float(_first_text(row, (".cell-fl .unit", ".cell-fl"))),
                 "rain_mm": _as_float(_first_text(row, (".cell-p .unit", ".cell-p")), default=0),
                 "wave_direction_deg": _svg_title_to_float(
                     row.select_one(".cell-waves-wrapper .cell-wd svg title")
@@ -697,18 +609,7 @@ def _parse_fc_day_rows(
                 "wave_interval_s": _as_int(_first_text(row, (".cell-wp",))),
                 "night_hour": "is-night" in row.get("class", []),
                 "cloud_cover_pct": _as_int(_first_text(row, (".cell-cl .unit", ".cell-cl"))),
-                "relative_humidity_pct": _as_int(
-                    _first_text(row, (".cell-hum .unit", ".cell-hum"))
-                ),
                 "air_pressure_hpa": _as_float(_first_text(row, (".cell-ap",))),
-                "tide_datetime": _row_time_to_iso(
-                    dt_iso,
-                    _first_text(row, (".cell-tide-time .unit", ".cell-tide-time")),
-                    local_tz,
-                ),
-                "tide_height_m": _as_float(
-                    _first_text(row, (".cell-th .unit", ".cell-th"))
-                ),
             }
         )
 
@@ -717,17 +618,32 @@ def _parse_fc_day_rows(
 
 def _parse_astro_layout_data(soup: BeautifulSoup, local_tz: timezone) -> list[dict]:
     """Parse the full forecast horizon from Windfinder's Astro island props."""
-    props = _astro_component_props(soup, "FcTableWindpreviewContainer")
-    if not isinstance(props, dict):
+    island = soup.select_one(
+        "astro-island[component-url*='FcTableWindpreviewContainer']"
+    )
+    if not island:
         return []
 
-    layout_data = props.get("layoutData")
+    raw_props = island.get("props")
+    if not raw_props:
+        return []
+
+    try:
+        props = json.loads(html_lib.unescape(raw_props))
+    except json.JSONDecodeError:
+        return []
+
+    layout_data = _decode_astro_value(props.get("layoutData"))
     if not isinstance(layout_data, list):
         return []
 
     forecasts: list[dict] = []
-    for day in _iter_astro_forecast_days(layout_data):
+    for day in layout_data:
+        if not isinstance(day, dict):
+            continue
         horizons = day.get("horizons")
+        if not isinstance(horizons, list):
+            continue
 
         for horizon in horizons:
             if not isinstance(horizon, dict):
@@ -739,8 +655,8 @@ def _parse_astro_layout_data(soup: BeautifulSoup, local_tz: timezone) -> list[di
             forecasts.append(
                 {
                     "datetime": dt_iso,
-                    "wind_speed_kn": _mps_to_knots(horizon.get("ws")),
-                    "wind_gust_kn": _mps_to_knots(horizon.get("wg")),
+                    "wind_speed_kn": _as_float(horizon.get("ws")),
+                    "wind_gust_kn": _as_float(horizon.get("wg")),
                     "wind_direction_deg": _as_float(horizon.get("wd")),
                     "wind_direction": None,
                     "temperature_c": None,
@@ -768,34 +684,30 @@ def _decode_astro_value(value):
     return value
 
 
-def _combine_forecasts(*sources: list[dict]) -> list[dict]:
-    """Union forecast sources by timestamp, preferring later sources."""
-    source_maps: list[dict[str, dict]] = []
-    all_datetimes: set[str] = set()
+def _merge_forecasts(primary: list[dict], overlay: list[dict]) -> list[dict]:
+    """Merge richer row details onto the full-horizon forecast list."""
+    overlay_map = {
+        item["datetime"]: item for item in overlay if isinstance(item, dict) and item.get("datetime")
+    }
+    merged: list[dict] = []
 
-    for source in sources:
-        mapping = {
-            item["datetime"]: item
-            for item in source
-            if isinstance(item, dict) and item.get("datetime")
-        }
-        source_maps.append(mapping)
-        all_datetimes.update(mapping)
-
-    combined: list[dict] = []
-    for dt_iso in sorted(all_datetimes):
-        merged = {"datetime": dt_iso}
-        for mapping in source_maps:
-            item = mapping.get(dt_iso)
-            if not item:
-                continue
-            for key, value in item.items():
-                if key == "datetime" or value is None:
+    for item in primary:
+        if not isinstance(item, dict):
+            continue
+        combined = dict(item)
+        extra = overlay_map.get(item.get("datetime"))
+        if extra:
+            for key, value in extra.items():
+                if key == "datetime":
                     continue
-                merged[key] = value
-        combined.append(merged)
+                if value is None:
+                    continue
+                if key == "rain_mm" and value == 0 and combined.get(key) not in (None, 0):
+                    continue
+                combined[key] = value
+        merged.append(combined)
 
-    return combined
+    return merged
 
 
 def _row_datetime_iso(row, local_tz: timezone) -> str | None:
@@ -835,6 +747,88 @@ def _svg_title_to_float(node) -> float | None:
     return _as_float(node.text.replace("°", ""))
 
 
+def _parse_embedded_json(soup: BeautifulSoup, local_tz: timezone) -> list[dict]:
+    """Fallback parser for newer Windfinder pages that expose data via JSON."""
+    candidates: list[dict] = []
+    for script in soup.select("script[type='application/ld+json'], script"):
+        raw = script.string or script.text or ""
+        raw = raw.strip()
+        if "forecast" not in raw.lower() or "wind" not in raw.lower():
+            continue
+        payload = _extract_json(raw)
+        if isinstance(payload, dict):
+            candidates.append(payload)
+
+    for payload in candidates:
+        normalized = _normalize_payload_forecast(payload, local_tz)
+        if normalized:
+            return normalized
+    return []
+
+
+def _extract_json(raw: str) -> dict | None:
+    """Best-effort extraction for JSON objects in script tags."""
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r"(\{.*\})", raw, re.DOTALL)
+    if not match:
+        return None
+    try:
+        parsed = json.loads(match.group(1))
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        return None
+
+
+def _normalize_payload_forecast(payload: dict, local_tz: timezone) -> list[dict]:
+    """Normalize common JSON forecast structures into integration attributes."""
+    rows = payload.get("forecast") or payload.get("forecastData") or payload.get("data")
+    if not isinstance(rows, list):
+        return []
+
+    normalized: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        timestamp = row.get("datetime") or row.get("time") or row.get("timestamp")
+        dt_iso = _normalize_datetime(timestamp, local_tz)
+        if not dt_iso:
+            continue
+
+        normalized.append(
+            {
+                "datetime": dt_iso,
+                "wind_speed_kn": _as_float(row.get("wind_speed_kn") or row.get("windSpeed")),
+                "wind_gust_kn": _as_float(row.get("wind_gust_kn") or row.get("windGust")),
+                "wind_direction_deg": _as_float(
+                    row.get("wind_direction_deg") or row.get("windDirectionDeg")
+                ),
+                "wind_direction": row.get("wind_direction") or row.get("windDirection"),
+                "temperature_c": _as_float(row.get("temperature_c") or row.get("temperature")),
+                "rain_mm": _as_float(row.get("rain_mm") or row.get("rain"), default=0),
+                "wave_direction_deg": _as_float(
+                    row.get("wave_direction_deg") or row.get("waveDirectionDeg")
+                ),
+                "wave_height_m": _as_float(row.get("wave_height_m") or row.get("waveHeight")),
+                "wave_interval_s": _as_float(
+                    row.get("wave_interval_s") or row.get("waveInterval")
+                ),
+                "night_hour": bool(row.get("night_hour") or row.get("isNight")),
+                "cloud_cover_pct": _as_int(
+                    row.get("cloud_cover_pct") or row.get("cloudCover")
+                ),
+                "air_pressure_hpa": _as_float(
+                    row.get("air_pressure_hpa") or row.get("pressure")
+                ),
+            }
+        )
+    return normalized
+
+
 def _normalize_datetime(value, local_tz: timezone) -> str | None:
     """Normalize datetime-like values to UTC ISO strings."""
     if value is None:
@@ -852,82 +846,6 @@ def _normalize_datetime(value, local_tz: timezone) -> str | None:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=local_tz)
     return dt.astimezone(timezone.utc).isoformat()
-
-
-def _parse_http_datetime(value, local_tz: timezone) -> str | None:
-    """Parse HTTP-style datetimes such as 'Sun, 05 Apr 2026 10:35:57 GMT'."""
-    if value is None:
-        return None
-
-    try:
-        dt = parsedate_to_datetime(str(value).strip())
-    except (TypeError, ValueError, IndexError):
-        return _normalize_datetime(value, local_tz)
-
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc).isoformat()
-
-
-def _row_time_to_iso(
-    base_dt_iso: str | None,
-    value: str | None,
-    local_tz: timezone,
-) -> str | None:
-    """Attach a local HH:MM value to the closest day around a forecast row timestamp."""
-    if not base_dt_iso or not value:
-        return None
-
-    match = re.search(r"(\d{1,2}):(\d{2})", value)
-    if not match:
-        return None
-
-    try:
-        base_local = datetime.fromisoformat(base_dt_iso).astimezone(local_tz)
-    except ValueError:
-        return None
-
-    candidate = base_local.replace(
-        hour=int(match.group(1)),
-        minute=int(match.group(2)),
-        second=0,
-        microsecond=0,
-    )
-    delta = candidate - base_local
-    if delta > timedelta(hours=12):
-        candidate -= timedelta(days=1)
-    elif delta < -timedelta(hours=12):
-        candidate += timedelta(days=1)
-
-    return candidate.astimezone(timezone.utc).isoformat()
-
-
-def _kelvin_to_c(value, default=None):
-    """Convert Kelvin values returned by Astro props into Celsius."""
-    number = _as_float(value, default=None)
-    if number is None:
-        return default
-    if number > 170:
-        return round(number - 273.15, 2)
-    return round(number, 2)
-
-
-def _mps_to_knots(value, default=None):
-    """Convert Windfinder's structured wind values from m/s to knots."""
-    number = _as_float(value, default=None)
-    if number is None:
-        return default
-    return round(number * MPS_TO_KNOTS, 2)
-
-
-def _normalize_cloud_cover_pct(value):
-    """Normalize cloud cover values to integer percentages."""
-    number = _as_float(value, default=None)
-    if number is None:
-        return None
-    if 0 <= number <= 1:
-        number *= 100
-    return int(round(number))
 
 
 def _as_int(value, default=None):

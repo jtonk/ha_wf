@@ -22,9 +22,6 @@ data:
 
 ## Sensor Attributes
 - `forecastdata` / `superforecastdata` – hourly forecast points.
-- `forecast_generated` / `superforecast_generated` – last update timestamps reported by Windfinder.
-- `forecast_last_update` / `superforecast_last_update` – explicit aliases for the last update timestamps.
-- `forecast_next_update` / `superforecast_next_update` – next update timestamps reported by Windfinder.
-- `forecast_fetched` / `superforecast_fetched` – timestamps for when Home Assistant fetched the page.
+- `forecast_generated` / `forecast_fetched` – timestamps for the regular forecast.
+- `superforecast_generated` / `superforecast_fetched` – timestamps for the superforecast.
 - `spot_name` – the name of the location returned by Windfinder.
-- `spot_timezone` – the location timezone reported by Windfinder.
