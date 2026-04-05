@@ -19,6 +19,7 @@ from homeassistant.helpers.update_coordinator import (
 import voluptuous as vol
 
 import json
+import html as html_lib
 import re
 from bs4 import BeautifulSoup
 
@@ -331,8 +332,13 @@ def _parse_html(
                 }
             )
 
-    if not forecasts:
-        forecasts = _parse_fc_day_rows(soup, local_tz)
+    current_markup_forecasts = _parse_fc_day_rows(soup, local_tz)
+    astro_layout_forecasts = _parse_astro_layout_data(soup, local_tz)
+
+    if astro_layout_forecasts and len(astro_layout_forecasts) > len(forecasts):
+        forecasts = _merge_forecasts(astro_layout_forecasts, current_markup_forecasts)
+    elif not forecasts and current_markup_forecasts:
+        forecasts = current_markup_forecasts
 
     if not forecasts:
         _LOGGER.debug(
@@ -543,23 +549,98 @@ def _parse_fc_day_rows(soup: BeautifulSoup, local_tz: timezone) -> list[dict]:
     return forecasts
 
 
-def _row_datetime_iso(row, local_tz: timezone) -> str | None:
-    """Extract a row datetime from common Windfinder data attributes."""
-    for key in ("data-ts", "data-time", "data-timestamp", "data-dt", "datetime"):
-        value = row.get(key)
-        if value in (None, ""):
+def _parse_astro_layout_data(soup: BeautifulSoup, local_tz: timezone) -> list[dict]:
+    """Parse the full forecast horizon from Windfinder's Astro island props."""
+    island = soup.select_one(
+        "astro-island[component-url*='FcTableWindpreviewContainer']"
+    )
+    if not island:
+        return []
+
+    raw_props = island.get("props")
+    if not raw_props:
+        return []
+
+    try:
+        props = json.loads(html_lib.unescape(raw_props))
+    except json.JSONDecodeError:
+        return []
+
+    layout_data = _decode_astro_value(props.get("layoutData"))
+    if not isinstance(layout_data, list):
+        return []
+
+    forecasts: list[dict] = []
+    for day in layout_data:
+        if not isinstance(day, dict):
             continue
-        if isinstance(value, Number) or str(value).strip().isdigit():
-            timestamp = float(value)
-            # Milliseconds are sometimes used for JS timestamps.
-            if timestamp > 1_000_000_000_000:
-                timestamp /= 1000
-            dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
-            return dt.isoformat()
-        normalized = _normalize_datetime(value, local_tz)
-        if normalized:
-            return normalized
-    return None
+        horizons = day.get("horizons")
+        if not isinstance(horizons, list):
+            continue
+
+        for horizon in horizons:
+            if not isinstance(horizon, dict):
+                continue
+            dt_iso = _normalize_datetime(horizon.get("dtl"), local_tz)
+            if not dt_iso:
+                continue
+
+            forecasts.append(
+                {
+                    "datetime": dt_iso,
+                    "wind_speed_kn": _as_float(horizon.get("ws")),
+                    "wind_gust_kn": _as_float(horizon.get("wg")),
+                    "wind_direction_deg": _as_float(horizon.get("wd")),
+                    "wind_direction": None,
+                    "temperature_c": None,
+                    "rain_mm": 0,
+                    "wave_direction_deg": None,
+                    "wave_height_m": None,
+                    "wave_interval_s": None,
+                    "night_hour": False,
+                    "cloud_cover_pct": None,
+                    "air_pressure_hpa": None,
+                }
+            )
+
+    return forecasts
+
+
+def _decode_astro_value(value):
+    """Decode Astro's serialized prop wrapper format."""
+    if isinstance(value, list) and len(value) == 2 and value[0] in (0, 1):
+        return _decode_astro_value(value[1])
+    if isinstance(value, list):
+        return [_decode_astro_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _decode_astro_value(item) for key, item in value.items()}
+    return value
+
+
+def _merge_forecasts(primary: list[dict], overlay: list[dict]) -> list[dict]:
+    """Merge richer row details onto the full-horizon forecast list."""
+    overlay_map = {
+        item["datetime"]: item for item in overlay if isinstance(item, dict) and item.get("datetime")
+    }
+    merged: list[dict] = []
+
+    for item in primary:
+        if not isinstance(item, dict):
+            continue
+        combined = dict(item)
+        extra = overlay_map.get(item.get("datetime"))
+        if extra:
+            for key, value in extra.items():
+                if key == "datetime":
+                    continue
+                if value is None:
+                    continue
+                if key == "rain_mm" and value == 0 and combined.get(key) not in (None, 0):
+                    continue
+                combined[key] = value
+        merged.append(combined)
+
+    return merged
 
 
 def _extract_hour(value: str | None) -> int | None:
