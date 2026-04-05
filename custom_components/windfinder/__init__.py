@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from numbers import Number
 from zoneinfo import ZoneInfo
 
@@ -199,7 +199,6 @@ def _parse_html(
             generated_at = dt_local.astimezone(timezone.utc).isoformat()
 
     now = datetime.now(local_tz)
-    year = now.year
 
     for day in soup.select(".forecast-day, .weathertable, [data-testid='forecast-day']"):
         headline = day.select_one(
@@ -207,19 +206,10 @@ def _parse_html(
         )
         if not headline:
             continue
-        parsed_day = _parse_headline_date(headline.text, year)
-        if not parsed_day:
+        parsed_date = _parse_headline_date(headline.text, now)
+        if not parsed_date:
             # Skip rows that do not contain a valid date
             continue
-        month, day_num = parsed_day
-
-        # Handle year roll-over for forecasts around New Year's Day
-        if month < now.month - 6:
-            date_year = year + 1
-        elif month > now.month + 6:
-            date_year = year - 1
-        else:
-            date_year = year
 
         for row in day.select(".weathertable__row, tr, [data-testid='forecast-row']"):
             hour_text = _first_text(
@@ -247,7 +237,13 @@ def _parse_html(
             if not m:
                 continue
             hour = int(m.group(1))
-            dt_local = datetime(date_year, month, day_num, hour, tzinfo=local_tz)
+            dt_local = datetime(
+                parsed_date.year,
+                parsed_date.month,
+                parsed_date.day,
+                hour,
+                tzinfo=local_tz,
+            )
             dt = dt_local.astimezone(timezone.utc)
 
             gust_text = _first_text(
@@ -359,19 +355,106 @@ def _parse_html(
     }
 
 
-def _parse_headline_date(headline: str, year: int) -> tuple[int, int] | None:
-    """Extract month/day from a day headline."""
-    clean = headline.replace(",", "").strip()
-    parts = clean.split()
-    if len(parts) < 3:
+def _parse_headline_date(headline: str, now: datetime) -> date | None:
+    """Extract a calendar date from a day headline.
+
+    Windfinder currently renders multiple headline variants. Some include
+    month names (e.g. "Sun, Apr 5"), while others only include day numbers
+    for upcoming days in the same month.
+    """
+    clean = " ".join(headline.replace(",", " ").split())
+    if not clean:
         return None
-    try:
-        month = MONTHS[parts[1]]
-        day_num = int(parts[2])
-        datetime(year, month, day_num)
-    except (KeyError, ValueError):
-        return None
-    return month, day_num
+
+    today = now.date()
+    lowered = clean.lower()
+    if lowered.startswith("today"):
+        return today
+    if lowered.startswith("tomorrow"):
+        return today + timedelta(days=1)
+
+    iso_match = re.search(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b", clean)
+    if iso_match:
+        try:
+            return date(
+                int(iso_match.group(1)),
+                int(iso_match.group(2)),
+                int(iso_match.group(3)),
+            )
+        except ValueError:
+            return None
+
+    month_aliases = {
+        month.lower(): month_num for month, month_num in MONTHS.items()
+    }
+    month_aliases.update(
+        {
+            "january": 1,
+            "february": 2,
+            "march": 3,
+            "april": 4,
+            "june": 6,
+            "july": 7,
+            "august": 8,
+            "september": 9,
+            "october": 10,
+            "november": 11,
+            "december": 12,
+        }
+    )
+
+    month_day = re.search(
+        r"\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:\b|st|nd|rd|th)",
+        clean,
+    )
+    if month_day:
+        month_name = month_day.group(1).lower()
+        day_num = int(month_day.group(2))
+        month = month_aliases.get(month_name)
+        if month:
+            year = now.year
+            try:
+                parsed = date(year, month, day_num)
+            except ValueError:
+                return None
+            if parsed < today - timedelta(days=180):
+                return date(year + 1, month, day_num)
+            if parsed > today + timedelta(days=180):
+                return date(year - 1, month, day_num)
+            return parsed
+
+    dotted = re.search(r"\b(\d{1,2})\.(\d{1,2})\.?\b", clean)
+    if dotted:
+        day_num = int(dotted.group(1))
+        month = int(dotted.group(2))
+        year = now.year
+        try:
+            parsed = date(year, month, day_num)
+        except ValueError:
+            return None
+        if parsed < today - timedelta(days=180):
+            return date(year + 1, month, day_num)
+        if parsed > today + timedelta(days=180):
+            return date(year - 1, month, day_num)
+        return parsed
+
+    day_only = re.search(r"\b(\d{1,2})(?:\b|st|nd|rd|th)", clean)
+    if day_only:
+        day_num = int(day_only.group(1))
+        month = now.month
+        year = now.year
+        try:
+            parsed = date(year, month, day_num)
+        except ValueError:
+            return None
+        if parsed < today - timedelta(days=15):
+            if month == 12:
+                parsed = date(year + 1, 1, day_num)
+            else:
+                parsed = date(year, month + 1, day_num)
+        return parsed
+
+    return None
 
 
 def _first_text(node, selectors: tuple[str, ...]) -> str | None:
@@ -408,31 +491,33 @@ def _spot_name_from_meta(soup: BeautifulSoup) -> str | None:
 def _parse_fc_day_rows(soup: BeautifulSoup, local_tz: timezone) -> list[dict]:
     """Parse current Windfinder day/row markup."""
     forecasts: list[dict] = []
+    seen_datetimes: set[str] = set()
     now = datetime.now(local_tz)
-    base_year = now.year
-
     for day in soup.select(".fc-day"):
         headline = _first_text(day, (".fc-day-headline span", ".fc-day-headline"))
-        if not headline:
-            continue
+        parsed_date = _parse_headline_date(headline, now) if headline else None
 
-        parsed_day = _parse_headline_date(headline, base_year)
-        if not parsed_day:
-            continue
-
-        month, day_num = parsed_day
-        if month < now.month - 6:
-            date_year = base_year + 1
-        elif month > now.month + 6:
-            date_year = base_year - 1
-        else:
-            date_year = base_year
-
-        for row in day.select(".fc-table-horizon.visible-md"):
+        # Parse all horizon rows, not only a specific responsive variant.
+        for row in day.select(".fc-table-horizon"):
             hour_text = _first_text(row, (".cell-ts",))
             hour = _extract_hour(hour_text)
-            if hour is None:
+            dt_iso = _row_datetime_iso(row, local_tz)
+            if dt_iso is None:
+                if parsed_date is None or hour is None:
+                    continue
+                dt_local = datetime(
+                    parsed_date.year,
+                    parsed_date.month,
+                    parsed_date.day,
+                    hour,
+                    tzinfo=local_tz,
+                )
+                dt_iso = dt_local.astimezone(timezone.utc).isoformat()
+
+            # Multiple responsive tables can contain the same timestamp.
+            if dt_iso in seen_datetimes:
                 continue
+            seen_datetimes.add(dt_iso)
 
             wind_dir_title = None
             for child in row.find_all("div", recursive=False):
@@ -441,10 +526,9 @@ def _parse_fc_day_rows(soup: BeautifulSoup, local_tz: timezone) -> list[dict]:
                     wind_dir_title = child.select_one("svg title")
                     break
 
-            dt_local = datetime(date_year, month, day_num, hour, tzinfo=local_tz)
             forecasts.append(
                 {
-                    "datetime": dt_local.astimezone(timezone.utc).isoformat(),
+                    "datetime": dt_iso,
                     "wind_speed_kn": _as_float(_first_text(row, (".cell-ws .unit", ".cell-ws"))),
                     "wind_gust_kn": _as_float(_first_text(row, (".cell-wg .unit", ".cell-wg"))),
                     "wind_direction_deg": _svg_title_to_float(wind_dir_title),
