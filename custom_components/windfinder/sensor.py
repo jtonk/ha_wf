@@ -84,9 +84,14 @@ class WindfinderSensor(CoordinatorEntity, SensorEntity):
             "forecastdata",
             "superforecastdata",
             "spot_name",
+            "spot_timezone",
             "forecast_generated",
+            "forecast_last_update",
+            "forecast_next_update",
             "forecast_fetched",
             "superforecast_generated",
+            "superforecast_last_update",
+            "superforecast_next_update",
             "superforecast_fetched",
         ):
             if key in data:
