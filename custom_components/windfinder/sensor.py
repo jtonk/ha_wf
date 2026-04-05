@@ -48,9 +48,16 @@ class WindfinderSensor(CoordinatorEntity, SensorEntity):
         data = self.coordinator.data or {}
         forecast_generated = data.get("forecast_generated")
         superforecast_generated = data.get("superforecast_generated")
+        forecast_fetched = data.get("forecast_fetched")
+        superforecast_fetched = data.get("superforecast_fetched")
 
         latest_dt = None
-        for ts in (forecast_generated, superforecast_generated):
+        for ts in (
+            forecast_generated,
+            superforecast_generated,
+            forecast_fetched,
+            superforecast_fetched,
+        ):
             if ts:
                 try:
                     dt = datetime.fromisoformat(ts)
@@ -62,7 +69,12 @@ class WindfinderSensor(CoordinatorEntity, SensorEntity):
         if latest_dt:
             return latest_dt.isoformat()
 
-        return superforecast_generated or forecast_generated
+        return (
+            superforecast_generated
+            or forecast_generated
+            or superforecast_fetched
+            or forecast_fetched
+        )
 
     @property
     def extra_state_attributes(self):

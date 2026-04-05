@@ -167,8 +167,11 @@ def _parse_html(
             "[data-testid='spot-name']",
             ".spotheader-spotname",
             "h1.spot-name",
+            ".spot-headline .large",
         ),
     )
+    if not spot_name:
+        spot_name = _spot_name_from_meta(soup)
 
     generated_at = None
     # Windfinder only provides the hour and minute of the last update.
@@ -333,6 +336,9 @@ def _parse_html(
             )
 
     if not forecasts:
+        forecasts = _parse_fc_day_rows(soup, local_tz)
+
+    if not forecasts:
         _LOGGER.debug(
             "No rows parsed from %s HTML table, trying embedded JSON fallback", url
         )
@@ -372,6 +378,103 @@ def _first_text(node, selectors: tuple[str, ...]) -> str | None:
         if text:
             return text
     return None
+
+
+def _spot_name_from_meta(soup: BeautifulSoup) -> str | None:
+    """Extract the spot name from page metadata when headline selectors drift."""
+    meta = soup.select_one("meta[property='og:title'], meta[name='twitter:title']")
+    if not meta:
+        return None
+
+    content = (meta.get("content") or "").strip()
+    if not content:
+        return None
+
+    for marker in (" forecast ", " Superforecast "):
+        if marker in content:
+            spot_name = content.split(marker, 1)[1].rsplit(" - Windfinder", 1)[0].strip()
+            if spot_name:
+                return spot_name
+
+    return None
+
+
+def _parse_fc_day_rows(soup: BeautifulSoup, local_tz: timezone) -> list[dict]:
+    """Parse current Windfinder day/row markup."""
+    forecasts: list[dict] = []
+    now = datetime.now(local_tz)
+    base_year = now.year
+
+    for day in soup.select(".fc-day"):
+        headline = _first_text(day, (".fc-day-headline span", ".fc-day-headline"))
+        if not headline:
+            continue
+
+        parsed_day = _parse_headline_date(headline, base_year)
+        if not parsed_day:
+            continue
+
+        month, day_num = parsed_day
+        if month < now.month - 6:
+            date_year = base_year + 1
+        elif month > now.month + 6:
+            date_year = base_year - 1
+        else:
+            date_year = base_year
+
+        for row in day.select(".fc-table-horizon.visible-md"):
+            hour_text = _first_text(row, (".cell-ts",))
+            hour = _extract_hour(hour_text)
+            if hour is None:
+                continue
+
+            wind_dir_title = None
+            for child in row.find_all("div", recursive=False):
+                classes = child.get("class", [])
+                if "cell-wd" in classes:
+                    wind_dir_title = child.select_one("svg title")
+                    break
+
+            dt_local = datetime(date_year, month, day_num, hour, tzinfo=local_tz)
+            forecasts.append(
+                {
+                    "datetime": dt_local.astimezone(timezone.utc).isoformat(),
+                    "wind_speed_kn": _as_float(_first_text(row, (".cell-ws .unit", ".cell-ws"))),
+                    "wind_gust_kn": _as_float(_first_text(row, (".cell-wg .unit", ".cell-wg"))),
+                    "wind_direction_deg": _svg_title_to_float(wind_dir_title),
+                    "wind_direction": None,
+                    "temperature_c": _as_float(_first_text(row, (".cell-at .unit", ".cell-at"))),
+                    "rain_mm": _as_float(_first_text(row, (".cell-p .unit", ".cell-p")), default=0),
+                    "wave_direction_deg": _svg_title_to_float(
+                        row.select_one(".cell-waves-wrapper .cell-wd svg title")
+                    ),
+                    "wave_height_m": _as_float(_first_text(row, (".cell-wh",))),
+                    "wave_interval_s": _as_int(_first_text(row, (".cell-wp",))),
+                    "night_hour": "is-night" in row.get("class", []),
+                    "cloud_cover_pct": _as_int(_first_text(row, (".cell-cl .unit", ".cell-cl"))),
+                    "air_pressure_hpa": _as_float(_first_text(row, (".cell-ap",))),
+                }
+            )
+
+    return forecasts
+
+
+def _extract_hour(value: str | None) -> int | None:
+    """Extract an hour from strings like '02h'."""
+    if not value:
+        return None
+    match = re.search(r"(\d{1,2})", value)
+    if not match:
+        return None
+    hour = int(match.group(1))
+    return hour if 0 <= hour <= 23 else None
+
+
+def _svg_title_to_float(node) -> float | None:
+    """Extract a degree value from an SVG title element."""
+    if not node or not node.text:
+        return None
+    return _as_float(node.text.replace("°", ""))
 
 
 def _parse_embedded_json(soup: BeautifulSoup, local_tz: timezone) -> list[dict]:
