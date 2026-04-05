@@ -370,11 +370,11 @@ def _parse_astro_forecast_rows(
                         _as_float(fc_data.get("wah")) if has_wave_data else None
                     ),
                     "wave_interval_s": (
-                        _as_int(fc_data.get("wap")) if has_wave_data else None
+                        _as_float(fc_data.get("wap")) if has_wave_data else None
                     ),
                     "night_hour": bool(horizon.get("isNight")),
                     "cloud_cover_pct": _normalize_cloud_cover_pct(fc_data.get("cl")),
-                    "relative_humidity_pct": _as_int(fc_data.get("rh")),
+                    "relative_humidity_pct": _as_float(fc_data.get("rh")),
                     "air_pressure_hpa": _as_float(fc_data.get("ap")),
                     "tide_datetime": (
                         _normalize_datetime(tide_data.get("dtl"), local_tz)
@@ -553,8 +553,8 @@ def _kelvin_to_c(value, default=None):
     if number is None:
         return default
     if number > 170:
-        return round(number - 273.15, 2)
-    return round(number, 2)
+        return number - 273.15
+    return number
 
 
 def _mps_to_knots(value, default=None):
@@ -562,25 +562,17 @@ def _mps_to_knots(value, default=None):
     number = _as_float(value, default=None)
     if number is None:
         return default
-    return round(number * MPS_TO_KNOTS, 2)
+    return number * MPS_TO_KNOTS
 
 
 def _normalize_cloud_cover_pct(value):
-    """Normalize cloud cover values to integer percentages."""
+    """Normalize cloud cover values to percentage scale without rounding."""
     number = _as_float(value, default=None)
     if number is None:
         return None
     if 0 <= number <= 1:
         number *= 100
-    return int(round(number))
-
-
-def _as_int(value, default=None):
-    """Convert values to integer where possible."""
-    number = _as_float(value, default=None)
-    if number is None:
-        return default
-    return int(number)
+    return number
 
 
 def _as_float(value, default=None):
