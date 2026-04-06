@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from numbers import Number
@@ -10,13 +11,15 @@ from zoneinfo import ZoneInfo
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import aiohttp_client, config_validation as cv
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
 )
+from homeassistant.util import dt as dt_util
 import voluptuous as vol
 
 import json
@@ -26,8 +29,6 @@ from bs4 import BeautifulSoup
 
 from .const import (
     CONF_LOCATION,
-    CONF_REFRESH_INTERVAL,
-    DEFAULT_REFRESH_INTERVAL,
     DOMAIN,
     FORECAST_URL,
     PLATFORMS,
@@ -79,12 +80,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     session = aiohttp_client.async_get_clientsession(hass)
 
     location = entry.options.get(CONF_LOCATION, entry.data[CONF_LOCATION])
-    refresh_minutes = entry.options.get(CONF_REFRESH_INTERVAL, DEFAULT_REFRESH_INTERVAL)
     coordinator = WindfinderDataUpdateCoordinator(
         hass,
         session=session,
         location=location,
-        refresh_minutes=refresh_minutes,
     )
     await coordinator.async_config_entry_first_refresh()
 
@@ -97,6 +96,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
+    coordinator = hass.data[DOMAIN].get(entry.entry_id)
+    if coordinator:
+        coordinator.async_cancel_scheduled_refresh()
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
@@ -106,12 +108,52 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching data from Windfinder."""
 
-    def __init__(self, hass, *, session, location, refresh_minutes: int):
+    def __init__(self, hass, *, session, location):
         """Initialize coordinator."""
-        interval = timedelta(minutes=refresh_minutes)
-        super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=interval)
+        super().__init__(hass, _LOGGER, name=DOMAIN)
         self._session = session
         self._location = location.lower()
+        self._unsub_refresh: Callable[[], None] | None = None
+
+    def async_cancel_scheduled_refresh(self) -> None:
+        """Cancel any pending scheduled refresh."""
+        if self._unsub_refresh is not None:
+            self._unsub_refresh()
+            self._unsub_refresh = None
+
+    def _schedule_refresh_at(self, when: datetime) -> None:
+        """Schedule the next one-shot refresh."""
+        self.async_cancel_scheduled_refresh()
+        self._unsub_refresh = async_track_point_in_utc_time(
+            self.hass,
+            self._handle_scheduled_refresh,
+            when,
+        )
+        _LOGGER.debug("Scheduled next Windfinder refresh for %s", when.isoformat())
+
+    @staticmethod
+    def _next_refresh_target(data: dict) -> datetime | None:
+        """Return the earliest next-update timestamp plus five minutes."""
+        candidates: list[datetime] = []
+        for key in ("forecast_next_update", "superforecast_next_update"):
+            value = data.get(key)
+            if not value:
+                continue
+            try:
+                candidates.append(datetime.fromisoformat(value))
+            except ValueError:
+                continue
+
+        if not candidates:
+            return None
+
+        return min(candidates) + timedelta(minutes=5)
+
+    @callback
+    def _handle_scheduled_refresh(self, _now: datetime) -> None:
+        """Refresh when the scheduled point in time is reached."""
+        self._unsub_refresh = None
+        self.hass.async_create_task(self.async_request_refresh())
 
     async def _async_update_data(self):
         """Fetch and parse data from Windfinder."""
@@ -145,8 +187,20 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
                 **superforecast,
             }
 
+            next_refresh = self._next_refresh_target(result)
+            if next_refresh is None:
+                self.async_cancel_scheduled_refresh()
+                _LOGGER.warning(
+                    "No Windfinder next update timestamp found; automatic refresh is paused until the next manual refresh or reload"
+                )
+            else:
+                earliest_allowed = dt_util.utcnow() + timedelta(minutes=1)
+                self._schedule_refresh_at(max(next_refresh, earliest_allowed))
+
             return result
         except Exception as err:
+            retry_at = dt_util.utcnow() + timedelta(minutes=5)
+            self._schedule_refresh_at(retry_at)
             raise UpdateFailed(err)
 
 

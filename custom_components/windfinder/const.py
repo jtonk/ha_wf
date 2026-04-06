@@ -4,9 +4,6 @@ FORECAST_URL = "https://www.windfinder.com/forecast/{}"
 SUPERFORECAST_URL = "https://www.windfinder.com/weatherforecast/{}"
 PLATFORMS = ["sensor", "button"]
 
-CONF_REFRESH_INTERVAL = "refresh_interval"
-DEFAULT_REFRESH_INTERVAL = 30  # minutes
-
 # Mapping of Windfinder's month abbreviations to month numbers
 MONTHS = {
     "Jan": 1,
