@@ -1,7 +1,7 @@
 # Windfinder Home Assistant Integration
 
 A custom integration that fetches wind and weather information from [windfinder.com](https://www.windfinder.com) and exposes it as sensors in Home Assistant.
-The card is intended to be used with https://github.com/jtonk/ha_wf_card/
+The plugin is intended to be used with https://github.com/jtonk/ha_wf_card/
 
 ## Installation
 
