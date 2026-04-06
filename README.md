@@ -3,9 +3,17 @@
 A custom integration that fetches wind and weather information from [windfinder.com](https://www.windfinder.com) and exposes it as sensors in Home Assistant.
 
 ## Installation
+
+### No HACS
 1. Copy this repository to your `config/custom_components` directory so that the path becomes `custom_components/windfinder`.
 2. Restart Home Assistant.
 3. From the integrations page or via HACS, add **Windfinder** and provide your desired location. The location is normalised to lower case.
+
+### With HACS
+1. add a new custom repo, use https://github.com/jtonk/ha_wf/ repo and the integration category
+2. search for Windfinder in HACS & install it
+3. restart Home Assistant
+4. From the integrations page or via HACS, add **Windfinder** and provide your desired location. The location is normalised to lower case.
 
 The integration fetches once on startup or reload. After that it schedules the next refresh for 5 minutes after the earliest `next update` timestamp reported by the forecast or superforecast page.
 
