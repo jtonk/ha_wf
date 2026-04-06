@@ -7,7 +7,7 @@ A custom integration that fetches wind and weather information from [windfinder.
 2. Restart Home Assistant.
 3. From the integrations page or via HACS, add **Windfinder** and provide your desired location. The location is normalised to lower case.
 
-The integration refreshes every 30 minutes by default. You can change the interval from the integration options.
+The integration fetches once on startup or reload. After that it schedules the next refresh for 5 minutes after the earliest `next update` timestamp reported by the forecast or superforecast page.
 
 ## Usage
 For each configured location a sensor and a refresh button are created. The sensor's state indicates when the latest forecast was generated, while the full forecast data is available in the sensor attributes.

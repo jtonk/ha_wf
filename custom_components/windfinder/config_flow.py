@@ -10,8 +10,6 @@ from homeassistant.core import callback
 from .const import (
     DOMAIN,
     CONF_LOCATION,
-    CONF_REFRESH_INTERVAL,
-    DEFAULT_REFRESH_INTERVAL,
 )
 
 
@@ -58,12 +56,6 @@ class WindfinderOptionsFlowHandler(config_entries.OptionsFlow):
                         CONF_LOCATION,
                         default=self.config_entry.data.get(CONF_LOCATION),
                     ): str,
-                    vol.Required(
-                        CONF_REFRESH_INTERVAL,
-                        default=self.config_entry.options.get(
-                            CONF_REFRESH_INTERVAL, DEFAULT_REFRESH_INTERVAL
-                        ),
-                    ): int,
                 }
             ),
         )
