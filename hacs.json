@@ -1,5 +1,6 @@
 {
   "name": "Windfinder",
   "domain": "windfinder",
+  "content_in_root": false,
   "render_readme": true
 }

@@ -2,8 +2,9 @@
     "domain": "windfinder",
     "name": "Windfinder",
     "documentation": "https://github.com/example/windfinder",
-    "version": "0.7.2",
+    "version": "0.7.3",
     "config_flow": true,
+    "dependencies": ["frontend"],
     "requirements": ["beautifulsoup4>=4.13.0"],
     "codeowners": ["@jtonk"],
     "iot_class": "cloud_polling"
