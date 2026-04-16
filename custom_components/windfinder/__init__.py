@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from importlib import resources
 import logging
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
@@ -9,6 +10,8 @@ from email.utils import parsedate_to_datetime
 from numbers import Number
 from zoneinfo import ZoneInfo
 
+from homeassistant.components import frontend
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant, ServiceCall, callback
@@ -28,6 +31,8 @@ from bs4 import BeautifulSoup
 
 
 from .const import (
+    CARD_FILENAME,
+    CARD_URL,
     CONF_LOCATION,
     DOMAIN,
     FORECAST_URL,
@@ -45,6 +50,11 @@ SERVICE_REFRESH_SCHEMA = vol.Schema({vol.Required(ATTR_ENTITY_ID): cv.entity_ids
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the Windfinder component."""
+    card_path = resources.files(__package__) / CARD_FILENAME
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(CARD_URL, str(card_path), cache_headers=False)]
+    )
+    frontend.add_extra_js_url(hass, CARD_URL)
 
     async def handle_refresh_service(call: ServiceCall) -> None:
         entity_ids = call.data[ATTR_ENTITY_ID]
