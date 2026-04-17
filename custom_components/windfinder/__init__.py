@@ -276,11 +276,13 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
 def _parse_html(
     html: str,
     forecast_type: str,
-    local_tz: timezone = timezone.utc,
+    fallback_tz: timezone = timezone.utc,
 ) -> dict:
     """Parse a Windfinder HTML table into structured data."""
     soup = BeautifulSoup(html, "html.parser")
     spot_meta = _astro_component_props(soup, "SpotMeta")
+    spot_timezone = _spot_timezone_from_astro(spot_meta)
+    parse_tz = spot_timezone or fallback_tz
     spot_name = _spot_name_from_astro(spot_meta) or _first_text(
         soup,
         (
@@ -298,10 +300,10 @@ def _parse_html(
         soup,
         forecast_type,
         spot_meta,
-        local_tz,
+        parse_tz,
     )
 
-    forecasts = _parse_astro_forecast_data(soup, local_tz)
+    forecasts = _parse_astro_forecast_data(soup, parse_tz)
 
     return {
         forecast_type + "data": forecasts,
@@ -311,9 +313,7 @@ def _parse_html(
         forecast_type + "_next_update": next_update,
         "spot_name": spot_name,
         "spot_timezone": (
-            spot_meta.get("spot", {}).get("o_id")
-            if isinstance(spot_meta, dict)
-            else None
+            spot_timezone.key if isinstance(spot_timezone, ZoneInfo) else None
         ),
     }
 
@@ -387,6 +387,25 @@ def _spot_name_from_astro(spot_meta: dict | None) -> str | None:
 
     name = spot.get("n")
     return str(name).strip() if name else None
+
+
+def _spot_timezone_from_astro(spot_meta: dict | None) -> ZoneInfo | None:
+    """Extract the spot timezone from SpotMeta Astro props."""
+    if not isinstance(spot_meta, dict):
+        return None
+
+    spot = spot_meta.get("spot")
+    if not isinstance(spot, dict):
+        return None
+
+    timezone_name = spot.get("o_id")
+    if not timezone_name:
+        return None
+
+    try:
+        return ZoneInfo(str(timezone_name).strip())
+    except Exception:
+        return None
 
 
 def _spot_has_forecast_product(spot_meta: dict | None, product_id: str) -> bool:

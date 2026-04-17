@@ -90,13 +90,13 @@ This project bundles `ha_wf_card.js`, so a separate Lovelace resource entry is n
 If you want to use the card outside this integration, the original standalone repository can still be installed manually or through HACS by serving `ha_wf_card.js` as a Lovelace module.
 
 ## Sensor Attributes
-- `forecastdata` / `superforecastdata` – hourly forecast points.
-- `forecast_generated` / `superforecast_generated` – last update timestamps reported by Windfinder.
-- `forecast_last_update` / `superforecast_last_update` – explicit aliases for the last update timestamps.
-- `forecast_next_update` / `superforecast_next_update` – next update timestamps reported by Windfinder.
-- `forecast_fetched` / `superforecast_fetched` – timestamps for when Home Assistant fetched the page.
+- `forecastdata` / `superforecastdata` – hourly forecast points with `datetime` and `tide_datetime` stored as UTC ISO timestamps.
+- `forecast_generated` / `superforecast_generated` – last update timestamps reported by Windfinder, stored in UTC.
+- `forecast_last_update` / `superforecast_last_update` – explicit aliases for the last update timestamps, stored in UTC.
+- `forecast_next_update` / `superforecast_next_update` – next update timestamps reported by Windfinder, stored in UTC.
+- `forecast_fetched` / `superforecast_fetched` – timestamps for when Home Assistant fetched the page, stored in UTC.
 - `spot_name` – the name of the location returned by Windfinder.
-- `spot_timezone` – the location timezone reported by Windfinder.
+- `spot_timezone` – the spot's IANA timezone identifier reported by Windfinder, for example `Europe/Amsterdam`.
 
 ## License
 MIT
