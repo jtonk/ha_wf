@@ -10,7 +10,7 @@ from email.utils import parsedate_to_datetime
 from numbers import Number
 from zoneinfo import ZoneInfo
 
-from aiohttp import ClientResponseError
+from aiohttp import ClientError, ClientResponseError
 from homeassistant.components import frontend
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
@@ -173,17 +173,7 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
     ) -> str | None:
         """Fetch a Windfinder page and tolerate missing forecast products."""
         try:
-            async with self._session.get(url, timeout=10) as resp:
-                if resp.status == 404:
-                    _LOGGER.debug(
-                        "Windfinder %s page unavailable for %s: %s",
-                        forecast_type,
-                        self._location,
-                        url,
-                    )
-                    return None
-                resp.raise_for_status()
-                return await resp.text()
+            response = await self._session.get(url, timeout=10)
         except ClientResponseError as err:
             if err.status == 404:
                 _LOGGER.debug(
@@ -194,6 +184,28 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
                 )
                 return None
             raise
+        except ClientError as err:
+            if getattr(err, "status", None) == 404:
+                _LOGGER.debug(
+                    "Windfinder %s page unavailable for %s: %s",
+                    forecast_type,
+                    self._location,
+                    url,
+                )
+                return None
+            raise
+
+        async with response as resp:
+            if resp.status == 404:
+                _LOGGER.debug(
+                    "Windfinder %s page unavailable for %s: %s",
+                    forecast_type,
+                    self._location,
+                    url,
+                )
+                return None
+            resp.raise_for_status()
+            return await resp.text()
 
     async def _async_update_data(self):
         """Fetch and parse data from Windfinder."""
@@ -205,10 +217,17 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
                 forecast_url,
                 "forecast",
             )
-            superforecast_html = await self._async_fetch_forecast_page(
-                superforecast_url,
-                "superforecast",
-            )
+            superforecast_html = None
+            if forecast_html is None or _spot_supports_superforecast(forecast_html):
+                superforecast_html = await self._async_fetch_forecast_page(
+                    superforecast_url,
+                    "superforecast",
+                )
+            else:
+                _LOGGER.debug(
+                    "Skipping Windfinder superforecast fetch for %s; spot does not advertise superforecast",
+                    self._location,
+                )
 
             if forecast_html is None and superforecast_html is None:
                 raise UpdateFailed(
@@ -370,6 +389,42 @@ def _spot_name_from_astro(spot_meta: dict | None) -> str | None:
     return str(name).strip() if name else None
 
 
+def _spot_has_forecast_product(spot_meta: dict | None, product_id: str) -> bool:
+    """Return whether SpotMeta advertises a forecast product."""
+    if not isinstance(spot_meta, dict):
+        return False
+
+    spot = spot_meta.get("spot")
+    if not isinstance(spot, dict):
+        return False
+
+    forecast_products = spot.get("forecast_products")
+    if not isinstance(forecast_products, list):
+        return False
+
+    return any(
+        isinstance(product, dict) and product.get("id") == product_id
+        for product in forecast_products
+    )
+
+
+def _spot_supports_superforecast(html: str) -> bool:
+    """Infer whether a spot has a dedicated superforecast page."""
+    soup = BeautifulSoup(html, "html.parser")
+    spot_meta = _astro_component_props(soup, "SpotMeta")
+    if _spot_has_forecast_product(spot_meta, "sfc"):
+        return True
+
+    for link in soup.select("a[href]"):
+        href = link.get("href") or ""
+        if "/weatherforecast/" in href:
+            return True
+        if link.get_text(strip=True).lower() == "superforecast":
+            return True
+
+    return False
+
+
 def _parse_astro_update_info(
     soup: BeautifulSoup,
     forecast_type: str,
@@ -524,15 +579,10 @@ def _next_update_from_spot_meta(
     if not isinstance(spot_meta, dict):
         return None
 
-    spot = spot_meta.get("spot")
-    if not isinstance(spot, dict):
-        return None
-
-    forecast_products = spot.get("forecast_products")
-    if not isinstance(forecast_products, list):
-        return None
-
     product_id = "sfc" if forecast_type == "superforecast" else "gfs"
+    if not _spot_has_forecast_product(spot_meta, product_id):
+        return None
+
     last_update_dt = None
     if last_update:
         try:
@@ -540,6 +590,7 @@ def _next_update_from_spot_meta(
         except ValueError:
             last_update_dt = None
 
+    forecast_products = spot_meta["spot"]["forecast_products"]
     for product in forecast_products:
         if not isinstance(product, dict) or product.get("id") != product_id:
             continue
