@@ -1,6 +1,4 @@
 DOMAIN = "windfinder"
-CARD_FILENAME = "ha_wf_card.js"
-CARD_URL = f"/{DOMAIN}/{CARD_FILENAME}"
 CONF_LOCATION = "location"
 FORECAST_URL = "https://www.windfinder.com/forecast/{}"
 SUPERFORECAST_URL = "https://www.windfinder.com/weatherforecast/{}"
