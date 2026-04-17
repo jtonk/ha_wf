@@ -10,6 +10,7 @@ from email.utils import parsedate_to_datetime
 from numbers import Number
 from zoneinfo import ZoneInfo
 
+from aiohttp import ClientResponseError
 from homeassistant.components import frontend
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
@@ -165,19 +166,54 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
         self._unsub_refresh = None
         self.hass.async_create_task(self.async_request_refresh())
 
+    async def _async_fetch_forecast_page(
+        self,
+        url: str,
+        forecast_type: str,
+    ) -> str | None:
+        """Fetch a Windfinder page and tolerate missing forecast products."""
+        try:
+            async with self._session.get(url, timeout=10) as resp:
+                if resp.status == 404:
+                    _LOGGER.debug(
+                        "Windfinder %s page unavailable for %s: %s",
+                        forecast_type,
+                        self._location,
+                        url,
+                    )
+                    return None
+                resp.raise_for_status()
+                return await resp.text()
+        except ClientResponseError as err:
+            if err.status == 404:
+                _LOGGER.debug(
+                    "Windfinder %s page unavailable for %s: %s",
+                    forecast_type,
+                    self._location,
+                    url,
+                )
+                return None
+            raise
+
     async def _async_update_data(self):
         """Fetch and parse data from Windfinder."""
         try:
             forecast_url = FORECAST_URL.format(self._location)
             superforecast_url = SUPERFORECAST_URL.format(self._location)
 
-            async with self._session.get(forecast_url, timeout=10) as resp:
-                resp.raise_for_status()
-                forecast_html = await resp.text()
+            forecast_html = await self._async_fetch_forecast_page(
+                forecast_url,
+                "forecast",
+            )
+            superforecast_html = await self._async_fetch_forecast_page(
+                superforecast_url,
+                "superforecast",
+            )
 
-            async with self._session.get(superforecast_url, timeout=10) as resp:
-                resp.raise_for_status()
-                superforecast_html = await resp.text()
+            if forecast_html is None and superforecast_html is None:
+                raise UpdateFailed(
+                    f"No Windfinder forecast pages found for {self._location}"
+                )
 
             # Use Home Assistant's configured time zone if available
             local_tz = (
@@ -185,17 +221,17 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
                 if self.hass.config.time_zone
                 else timezone.utc
             )
-            forecast = _parse_html(forecast_html, "forecast", local_tz)
-            superforecast = _parse_html(
-                superforecast_html,
-                "superforecast",
-                local_tz,
-            )
-
-            result = {
-                **forecast,
-                **superforecast,
-            }
+            result = {}
+            if forecast_html is not None:
+                result.update(_parse_html(forecast_html, "forecast", local_tz))
+            if superforecast_html is not None:
+                result.update(
+                    _parse_html(
+                        superforecast_html,
+                        "superforecast",
+                        local_tz,
+                    )
+                )
 
             next_refresh = self._next_refresh_target(result)
             if next_refresh is None:
@@ -208,6 +244,10 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
                 self._schedule_refresh_at(max(next_refresh, earliest_allowed))
 
             return result
+        except UpdateFailed:
+            retry_at = dt_util.utcnow() + timedelta(minutes=5)
+            self._schedule_refresh_at(retry_at)
+            raise
         except Exception as err:
             retry_at = dt_util.utcnow() + timedelta(minutes=5)
             self._schedule_refresh_at(retry_at)
