@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from numbers import Number
 from zoneinfo import ZoneInfo
 
+from aiohttp import ClientResponseError
+from bs4 import BeautifulSoup
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -17,11 +22,6 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 import voluptuous as vol
-
-import json
-import re
-from bs4 import BeautifulSoup
-
 
 from .const import (
     CONF_LOCATION,
@@ -87,17 +87,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.async_config_entry_first_refresh()
 
     hass.data[DOMAIN][entry.entry_id] = coordinator
+    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
 
 
+async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the config entry when options change."""
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
+        hass.data[DOMAIN].pop(entry.entry_id, None)
     return unload_ok
 
 
@@ -109,21 +115,17 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
         interval = timedelta(minutes=refresh_minutes)
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=interval)
         self._session = session
-        self._location = location.lower()
+        self.location = location.lower()
 
     async def _async_update_data(self):
         """Fetch and parse data from Windfinder."""
         try:
-            forecast_url = FORECAST_URL.format(self._location)
-            superforecast_url = SUPERFORECAST_URL.format(self._location)
-
-            async with self._session.get(forecast_url, timeout=10) as resp:
-                resp.raise_for_status()
-                forecast_html = await resp.text()
-
-            async with self._session.get(superforecast_url, timeout=10) as resp:
-                resp.raise_for_status()
-                superforecast_html = await resp.text()
+            forecast_url = FORECAST_URL.format(self.location)
+            superforecast_url = SUPERFORECAST_URL.format(self.location)
+            forecast_html, superforecast_html = await asyncio.gather(
+                self._async_fetch_page(forecast_url),
+                self._async_fetch_superforecast_page(superforecast_url),
+            )
 
             # Use Home Assistant's configured time zone if available
             local_tz = (
@@ -146,16 +148,43 @@ class WindfinderDataUpdateCoordinator(DataUpdateCoordinator):
 
             return result
         except Exception as err:
-            raise UpdateFailed(err)
+            raise UpdateFailed(err) from err
+
+    async def _async_fetch_page(self, url: str) -> str:
+        """Fetch a Windfinder page."""
+        async with self._session.get(url, timeout=10) as resp:
+            resp.raise_for_status()
+            return await resp.text()
+
+    async def _async_fetch_superforecast_page(self, url: str) -> str | None:
+        """Fetch a Windfinder superforecast page when the location supports it."""
+        try:
+            return await self._async_fetch_page(url)
+        except ClientResponseError as err:
+            if err.status != 404:
+                raise
+            _LOGGER.debug(
+                "Windfinder superforecast not available for location '%s': %s",
+                self.location,
+                url,
+            )
+            return None
 
 
 def _parse_html(
-    html: str,
+    html: str | None,
     url: str,
     forecast_type: str,
     local_tz: timezone = timezone.utc,
 ) -> dict:
     """Parse a Windfinder HTML table into structured data."""
+    if html is None:
+        return {
+            forecast_type + "data": [],
+            forecast_type + "_fetched": None,
+            forecast_type + "_generated": None,
+        }
+
     soup = BeautifulSoup(html, "html.parser")
 
     forecasts = []
