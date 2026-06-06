@@ -20,6 +20,11 @@ The integration fetches once on startup or reload. After that it schedules the n
 ## Usage
 For each configured location a sensor and a refresh button are created. The sensor's state reports the predicted wind speed in knots for the active forecast hour, preferring `superforecastdata` when available and falling back to `forecastdata`. The full forecast data and update timestamps are available in the sensor attributes.
 
+The forecast attributes remain available on the live entity but are excluded
+from recorder history. This prevents the large forecast arrays from exceeding
+Home Assistant's recorder attribute-size limit and allows long-term wind-speed
+statistics to be compiled reliably.
+
 To trigger an immediate update you can call the `windfinder.refresh` service:
 
 ```yaml

@@ -11,7 +11,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfSpeed
+from homeassistant.const import MATCH_ALL, UnitOfSpeed
 from homeassistant.core import HomeAssistant
 from homeassistant.core import callback
 from homeassistant.helpers.entity import DeviceInfo
@@ -35,6 +35,9 @@ async def async_setup_entry(
 class WindfinderSensor(CoordinatorEntity, SensorEntity):
     """Representation of a Windfinder sensor for one location."""
 
+    # Forecast arrays can exceed recorder's attribute-size limit. Keep them
+    # available on the live entity without storing them in every history row.
+    _unrecorded_attributes = frozenset({MATCH_ALL})
     _attr_should_poll = False
     _attr_icon = "mdi:windsock"
     _attr_device_class = SensorDeviceClass.WIND_SPEED
