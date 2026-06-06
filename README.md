@@ -37,5 +37,10 @@ data:
 - `spot_name` – the name of the location returned by Windfinder.
 - `spot_timezone` – the spot's IANA timezone identifier reported by Windfinder, for example `Europe/Amsterdam`.
 
+Forecast measurements are rounded to practical display precision: wind,
+temperature, rain, and wave period to one decimal; wave and tide heights to two
+decimals; and directions, percentages, humidity, and pressure to whole numbers.
+The sensor state is rounded to one decimal knot.
+
 ## License
 MIT

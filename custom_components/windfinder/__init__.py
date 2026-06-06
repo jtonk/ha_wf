@@ -522,27 +522,33 @@ def _parse_astro_forecast_rows(
             forecasts.append(
                 {
                     "datetime": dt_iso,
-                    "wind_speed_kn": _mps_to_knots(fc_data.get("ws")),
-                    "wind_gust_kn": _mps_to_knots(fc_data.get("wg")),
-                    "wind_direction_deg": _as_float(fc_data.get("wd")),
+                    "wind_speed_kn": _mps_to_knots(fc_data.get("ws"), precision=1),
+                    "wind_gust_kn": _mps_to_knots(fc_data.get("wg"), precision=1),
+                    "wind_direction_deg": _rounded_float(fc_data.get("wd"), 0),
                     "wind_direction": None,
-                    "temperature_c": _kelvin_to_c(fc_data.get("at")),
-                    "feels_like_c": _kelvin_to_c(fc_data.get("fl")),
-                    "rain_mm": _as_float(fc_data.get("p"), default=0),
+                    "temperature_c": _kelvin_to_c(fc_data.get("at"), precision=1),
+                    "feels_like_c": _kelvin_to_c(fc_data.get("fl"), precision=1),
+                    "rain_mm": _rounded_float(fc_data.get("p"), 1, default=0),
                     "precipitation_type": fc_data.get("pt"),
                     "wave_direction_deg": (
-                        _as_float(fc_data.get("wad")) if has_wave_data else None
+                        _rounded_float(fc_data.get("wad"), 0)
+                        if has_wave_data
+                        else None
                     ),
                     "wave_height_m": (
-                        _as_float(fc_data.get("wah")) if has_wave_data else None
+                        _rounded_float(fc_data.get("wah"), 2)
+                        if has_wave_data
+                        else None
                     ),
                     "wave_interval_s": (
-                        _as_float(fc_data.get("wap")) if has_wave_data else None
+                        _rounded_float(fc_data.get("wap"), 1)
+                        if has_wave_data
+                        else None
                     ),
                     "night_hour": bool(horizon.get("isNight")),
                     "cloud_cover_pct": _normalize_cloud_cover_pct(fc_data.get("cl")),
-                    "relative_humidity_pct": _as_float(fc_data.get("rh")),
-                    "air_pressure_hpa": _as_float(fc_data.get("ap")),
+                    "relative_humidity_pct": _rounded_float(fc_data.get("rh"), 0),
+                    "air_pressure_hpa": _rounded_float(fc_data.get("ap"), 0),
                     "tide_datetime": (
                         _normalize_datetime(tide_data.get("dtl"), local_tz)
                         if has_tide_data and isinstance(tide_data, dict)
@@ -554,7 +560,7 @@ def _parse_astro_forecast_rows(
                         else None
                     ),
                     "tide_height_m": (
-                        _as_float(tide_data.get("th"))
+                        _rounded_float(tide_data.get("th"), 2)
                         if has_tide_data and isinstance(tide_data, dict)
                         else None
                     ),
@@ -710,32 +716,50 @@ def _parse_http_datetime(value, local_tz: timezone) -> str | None:
     return dt.astimezone(timezone.utc).isoformat()
 
 
-def _kelvin_to_c(value, default=None):
+def _kelvin_to_c(value, default=None, precision: int | None = None):
     """Convert Kelvin values returned by Astro props into Celsius."""
     number = _as_float(value, default=None)
     if number is None:
         return default
     if number > 170:
-        return number - 273.15
-    return number
+        number -= 273.15
+    return _round_number(number, precision)
 
 
-def _mps_to_knots(value, default=None):
+def _mps_to_knots(value, default=None, precision: int | None = None):
     """Convert Windfinder's structured wind values from m/s to knots."""
     number = _as_float(value, default=None)
     if number is None:
         return default
-    return number * MPS_TO_KNOTS
+    return _round_number(number * MPS_TO_KNOTS, precision)
 
 
 def _normalize_cloud_cover_pct(value):
-    """Normalize cloud cover values to percentage scale without rounding."""
+    """Normalize cloud cover values to a whole-number percentage."""
     number = _as_float(value, default=None)
     if number is None:
         return None
     if 0 <= number <= 1:
         number *= 100
-    return number
+    return _round_number(number, 0)
+
+
+def _rounded_float(value, precision: int, default=None):
+    """Convert a value to float and round it to the requested precision."""
+    number = _as_float(value, default=None)
+    if number is None:
+        return default
+    return _round_number(number, precision)
+
+
+def _round_number(value: float, precision: int | None):
+    """Round a number while preserving unrounded values when requested."""
+    if precision is None:
+        return value
+    if precision == 0:
+        return round(value)
+    rounded = round(value, precision)
+    return 0.0 if rounded == 0 else rounded
 
 
 def _as_float(value, default=None):

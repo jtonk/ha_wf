@@ -97,7 +97,8 @@ class WindfinderSensor(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self):
         data = self.coordinator.data or {}
-        return _active_wind_speed(data, dt_util.utcnow())
+        speed = _active_wind_speed(data, dt_util.utcnow())
+        return round(speed, 1) if speed is not None else None
 
     @property
     def extra_state_attributes(self):
