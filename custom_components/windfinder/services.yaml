@@ -1,0 +1,12 @@
+refresh:
+  name: Refresh
+  description: Refresh Windfinder forecast data immediately.
+  fields:
+    entity_id:
+      name: Entity
+      description: Windfinder entities to refresh.
+      required: true
+      selector:
+        entity:
+          integration: windfinder
+          multiple: true
