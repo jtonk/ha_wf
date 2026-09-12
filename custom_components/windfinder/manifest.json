@@ -2,7 +2,7 @@
     "domain": "windfinder",
     "name": "Windfinder",
     "documentation": "https://github.com/jtonk/ha_wf",
-    "version": "0.7.5",
+    "version": "0.7.6",
     "config_flow": true,
     "requirements": ["beautifulsoup4>=4.13.0"],
     "codeowners": ["@jtonk"],

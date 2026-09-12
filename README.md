@@ -17,6 +17,16 @@ A custom integration that fetches wind and weather information from [windfinder.
 
 The integration fetches once on startup or reload. After that it schedules the next refresh for 5 minutes after the earliest `next update` timestamp reported by the forecast or superforecast page. The sensor state is recalculated hourly from the fetched forecast data.
 
+### Integration icon
+The official Windfinder icon is bundled in `custom_components/windfinder/brand/icon.png`.
+Home Assistant 2026.3 or newer displays this icon automatically. After updating
+the integration, restart Home Assistant and refresh your browser to load it.
+Older Home Assistant versions do not support bundled integration icons.
+
+The icon comes from [Windfinder's website](https://www.windfinder.com/about/history-press)
+([original asset](https://cdn.windfinder.net/prod/assets/apple-touch-icon-prod.BCBndhaW.png))
+and remains the property of Windfinder; it is not covered by this project's MIT license.
+
 ## Usage
 For each configured location a sensor and a refresh button are created. The sensor's state reports the predicted wind speed in knots for the active forecast hour, preferring `superforecastdata` when available and falling back to `forecastdata`. The full forecast data and update timestamps are available in the sensor attributes.
 
