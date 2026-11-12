@@ -28,6 +28,7 @@ import html as html_lib
 from bs4 import BeautifulSoup
 
 
+from .frontend import async_register_card
 from .const import (
     CONF_LOCATION,
     DOMAIN,
@@ -62,6 +63,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 await coordinator.async_request_refresh()
             else:
                 _LOGGER.warning("No Windfinder entity '%s' found", entity_id)
+
+    await async_register_card(hass)
 
     hass.services.async_register(
         DOMAIN,

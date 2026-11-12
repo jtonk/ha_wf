@@ -5,7 +5,7 @@ A custom integration that fetches wind and weather information from [windfinder.
 ## Installation
 
 ### No HACS
-1. Copy this repository to your `config/custom_components` directory so that the path becomes `custom_components/windfinder`.
+1. Copy `custom_components/windfinder` from this repository to your Home Assistant `config/custom_components/windfinder` directory.
 2. Restart Home Assistant.
 3. From the integrations page or via HACS, add **Windfinder** and provide your desired location. The location is normalised to lower case.
 
@@ -56,6 +56,56 @@ Forecast measurements are rounded to practical display precision: wind,
 temperature, rain, and wave period to one decimal; wave and tide heights to two
 decimals; and directions, percentages, humidity, and pressure to whole numbers.
 The sensor state is rounded to one decimal knot.
+
+## Windfinder dashboard card
+
+The integration includes the former `ha_wf_card` card. It registers the card as a
+Lovelace resource automatically in storage resource mode. YAML resource mode also
+loads the card automatically. No second HACS repository or JavaScript download is
+needed.
+
+Add it to a dashboard with the existing card type:
+
+```yaml
+type: custom:ha-wf-card
+entity: sensor.windfinder_noordwijk
+title: Noordwijk
+show_night: false
+default_source: forecastdata
+alert:
+  speed_min: 15
+  angles:
+    - from: 0
+      to: 30
+    - from: 210
+      to: 360
+```
+
+The visual editor supports entity selection, title, forecast source, night
+visibility, and alert speed and direction ranges. Times use the sensor's
+`spot_timezone` when available. The card reads the entity's `icon` attribute.
+
+![Windfinder dashboard card](https://raw.githubusercontent.com/jtonk/ha_wf/main/docs/windfinder-card.png)
+
+### Card options
+
+- `entity` (required): a Windfinder sensor with forecast attributes.
+- `title`: optional card title.
+- `show_night`: show night hours when `true`.
+- `default_source`: `forecastdata` (default) or `superforecastdata`.
+- `alert`: highlight wind above `speed_min` knots in the `angles` ranges during daylight hours.
+
+In a sections view, the card reports a full-width 12-column layout and adjusts
+its height to the visible forecast rows. Leave `grid_options.rows` unset to keep
+that automatic height.
+
+### Migrating from the separate card
+
+After updating this integration and restarting Home Assistant, remove the old
+`ha_wf_card` HACS repository and its `/hacsfiles/ha_wf_card/ha_wf_card.js`
+Dashboard resource. Keep your dashboard cards: `type: custom:ha-wf-card` and all
+card options are unchanged. Refresh the browser after removing the old resource
+so it loads the bundled version.
 
 ## License
 MIT
