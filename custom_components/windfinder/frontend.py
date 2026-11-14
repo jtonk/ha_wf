@@ -30,7 +30,7 @@ async def async_register_card(hass: HomeAssistant) -> None:
         for resource in resources.async_items():
             if resource["url"].split("?", 1)[0] != CARD_PATH:
                 continue
-            if resource["url"] != card_url or resource["res_type"] != "module":
+            if resource["url"] != card_url or resource.get("type") != "module":
                 await resources.async_update_item(
                     resource["id"], {"res_type": "module", "url": card_url}
                 )
